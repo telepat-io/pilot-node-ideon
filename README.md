@@ -38,12 +38,32 @@ Each request/reply is a single `DxType.JSON` frame whose payload is
 scripts/build-all.sh
 ```
 
-builds four images — `pilot` (daemon + pilotctl + wallet + rendezvous), `libpilot`
-(the sdk-node native FFI lib, built from source), `ideon` (Ideon MCP), and
-`ideon-article` (this Node app) — plus `build/libpilot.so` and the two signed
-bundles under `bundles/`. Pin a reproducible upstream with
-`PILOT_REF=<sha> scripts/build-all.sh`. All compilation happens inside
-`docker/*.Dockerfile`.
+builds the images and signed bundles (see **Containers** below) plus
+`build/libpilot.so`, all inside `docker/*.Dockerfile`. Pin a reproducible upstream
+with `PILOT_REF=<sha> scripts/build-all.sh`.
+
+## Containers (dev vs prod)
+
+`build-all.sh` produces four images: **pilot** (one image carrying the daemon,
+`pilotctl`, the wallet, and rendezvous binaries), **ideon** (the Ideon MCP server),
+**ideon-article** (this app's bundle), and **libpilot** (a build-time carrier for
+`libpilot.so`). Not all are *run*, and the wallet and this app are **not** their own
+containers — the provider daemon's supervisor spawns them as child processes inside
+`provider-daemon`:
+
+| Service | Image | Dev (`compose.smoke.yaml`) | Prod (`compose.yaml`) |
+|---------|-------|:--:|:--:|
+| `provider-daemon` — our node; supervises `io.pilot.wallet` + `io.telepat.ideon-article` | pilot | ✓ | ✓ |
+| `ideon-mcp` — the generator (dry-run in dev) | ideon | ✓ | ✓ |
+| `rendezvous` — local overlay control plane | pilot | ✓ | — |
+| `caller-daemon` — a second node playing the buyer | pilot | ✓ | — |
+| `caller-wallet` — mock payer wallet | pilot | ✓ | — |
+
+**Prod = two containers** (`provider-daemon` + `ideon-mcp`): the node joins Pilot's
+real overlay via `PILOT_REGISTRY`/`PILOT_BEACON`, so we don't run rendezvous
+ourselves. **Dev adds** a local `rendezvous` plus a buyer side (`caller-daemon` +
+`caller-wallet`) on an isolated network, so the full `quote → pay → deliver`
+round-trip runs offline.
 
 ## Smoke test (isolated network, mock + dry-run)
 
