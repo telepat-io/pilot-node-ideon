@@ -13,7 +13,7 @@
     "dev": "tsx src/main.ts"
   },
   "dependencies": {
-    "pilotprotocol": "latest"
+    "pilotprotocol": "1.10.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

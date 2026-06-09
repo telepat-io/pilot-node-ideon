@@ -25,9 +25,12 @@
 # ---------------------------------------------------------------------------
 FROM golang:1.25-bookworm AS builder
 
-# PILOT_REF pins the monorepo checkout (branch, tag, or commit SHA). Defaults to
-# the default branch tip when unset. Pass --build-arg PILOT_REF=<sha> to pin.
-ARG PILOT_REF=main
+# PILOT_REF pins the monorepo checkout (branch, tag, or commit SHA). The default
+# is a pinned commit SHA so release builds are reproducible without extra args;
+# override with --build-arg PILOT_REF=<ref> only for development. Keep this pin
+# in lockstep with docker/libpilot.Dockerfile and docker/pilotctl.Dockerfile —
+# bump procedure: docs/upgrading-pins.md.
+ARG PILOT_REF=27e3039658bfa69a743ce8bd23ead240560a8dff
 
 # git is needed both to clone the monorepo and for `go install ...@latest`
 # (module-aware install uses VCS to resolve @latest).
@@ -71,20 +74,17 @@ RUN go build -tags no_skillinject -ldflags "-s -w" \
 # verified in the upstream org/{wallet,rendezvous}/go.mod:
 #     github.com/pilot-protocol/wallet      -> ./cmd/wallet
 #     github.com/pilot-protocol/rendezvous  -> ./cmd/rendezvous   (combined registry+beacon+http)
-# Neither module declares replace directives, so @latest installs cleanly.
+# Neither module declares replace directives. Versions are PINNED (no @latest)
+# so rebuilds are reproducible; bump procedure: docs/upgrading-pins.md.
 # GOBIN=/out drops the binaries alongside the monorepo outputs.
-#
-# ALTERNATIVE (use if `go install` ever resolves wrong — e.g. the public
-# proxy lags, or a ref must be pinned to match PILOT_REF). Clone + build:
-#     RUN git clone https://github.com/pilot-protocol/wallet     /src/wallet \
-#      && git clone https://github.com/pilot-protocol/rendezvous /src/rendezvous
-#     RUN cd /src/wallet     && go build -ldflags "-s -w" -o /out/wallet     ./cmd/wallet
-#     RUN cd /src/rendezvous && go build -ldflags "-s -w" -o /out/rendezvous ./cmd/rendezvous
-RUN GOBIN=/out go install -ldflags "-s -w" \
-        github.com/pilot-protocol/wallet/cmd/wallet@latest
+ARG WALLET_VERSION=v0.3.0-rc1
+ARG RENDEZVOUS_VERSION=v0.2.4
 
 RUN GOBIN=/out go install -ldflags "-s -w" \
-        github.com/pilot-protocol/rendezvous/cmd/rendezvous@latest
+        "github.com/pilot-protocol/wallet/cmd/wallet@${WALLET_VERSION}"
+
+RUN GOBIN=/out go install -ldflags "-s -w" \
+        "github.com/pilot-protocol/rendezvous/cmd/rendezvous@${RENDEZVOUS_VERSION}"
 
 
 # ---------------------------------------------------------------------------

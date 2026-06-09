@@ -9,20 +9,30 @@
 # repos as siblings under /src (web4 = the monorepo) and build with
 # `-tags no_skillinject`.
 #
-# TWO LOCAL PATCHES are applied (the org repos are versioned inconsistently, so
+# ONE LOCAL PATCH is applied (the org repos are versioned inconsistently, so
 # libpilot's checkout needs reconciling with the rest):
-#   1. sed: common/driver.PolicySet gained a 3rd `adminToken string` arg that
-#      libpilot's bindings.go hasn't adopted. We pass "" (unused by our app).
-#   2. COPY docker/patches/libpilot-stubs.go: no-op //export stubs for 3 symbols
-#      the SDK declares that libpilot@HEAD does not export (koffi resolves all
-#      symbols eagerly at load; our app never calls these three).
+#   - COPY docker/patches/libpilot-stubs.go: no-op //export stubs for 3 symbols
+#     the SDK declares that libpilot (at the pinned SHA) does not export (koffi
+#     resolves all symbols eagerly at load; our app never calls these three).
+#
+# A FORMER PATCH is now an assertion: libpilot's bindings.go used to call the
+# 2-arg common/driver.PolicySet and we sed-patched in the 3rd `adminToken` arg;
+# upstream adopted it natively as of libpilot bb2287d (PilotPolicySet takes
+# adminToken). The grep below fails the build if a future pin regresses —
+# re-add the sed patch in that case (see docs/upgrading-pins.md).
 #
 # BUILD CONTEXT = the project root (so docker/patches is reachable):
 #   docker build -f docker/libpilot.Dockerfile -t pilot-protocol/libpilot:dev .
 # Override the upstream pin with --build-arg PILOT_REF=<branch|tag|sha>.
+#
+# PINNING: PILOT_REF defaults to a pinned monorepo commit SHA (keep in lockstep
+# with docker/pilot.Dockerfile and docker/pilotctl.Dockerfile), and the org
+# sibling repos are pinned per-SHA in docker/upstream-pins.txt. A bad/garbage-
+# collected SHA fails the build loudly — there is deliberately NO fallback to
+# an unpinned clone. Bump procedure: docs/upgrading-pins.md.
 FROM golang:1.25-bookworm AS build
 
-ARG PILOT_REF=main
+ARG PILOT_REF=27e3039658bfa69a743ce8bd23ead240560a8dff
 ENV CGO_ENABLED=1 \
     GOFLAGS=-buildvcs=false \
     GOTOOLCHAIN=local
@@ -33,23 +43,35 @@ RUN apt-get update \
 
 WORKDIR /src
 
-# Monorepo becomes the ../web4 sibling.
-RUN git clone --depth 1 --branch "${PILOT_REF}" https://github.com/TeoSlayer/pilotprotocol web4 \
-    || git clone --depth 1 https://github.com/TeoSlayer/pilotprotocol web4
+# Monorepo becomes the ../web4 sibling. clone-then-checkout (NOT --branch) so a
+# raw commit SHA pins; a bad ref aborts the build instead of silently falling
+# back to the branch tip.
+RUN git clone https://github.com/TeoSlayer/pilotprotocol web4 \
+ && git -C web4 checkout --detach "${PILOT_REF}"
 
-# Every org module libpilot's go.mod replaces => ../<name>, plus libpilot itself.
-RUN set -eu; for r in \
-      common handshake policy runtime skillinject trustedagents rendezvous \
-      beacon dataexchange eventstream gateway nameserver webhook updater \
-      app-store libpilot; do \
-      git clone --depth 1 "https://github.com/pilot-protocol/$r" "$r"; \
+# Every org module libpilot's go.mod replaces => ../<name>, plus libpilot
+# itself — each pinned to the SHA in docker/upstream-pins.txt. GitHub permits
+# fetching an arbitrary commit by SHA, so init+fetch --depth 1 stays shallow;
+# an unknown SHA makes the fetch (and the build) fail loudly.
+COPY docker/upstream-pins.txt /src/upstream-pins.txt
+RUN set -eu; grep -v '^#' /src/upstream-pins.txt | while read -r r sha; do \
+      [ -n "$r" ] || continue; \
+      git init -q "$r" \
+      && git -C "$r" remote add origin "https://github.com/pilot-protocol/$r" \
+      && git -C "$r" fetch --depth 1 -q origin "$sha" \
+      && git -C "$r" checkout -q --detach FETCH_HEAD; \
     done
 
-# PATCH 1 — PolicySet 2-arg -> 3-arg (adminToken ""), call is unused by our app.
-RUN sed -i 's#d.PolicySet(uint16(networkID), \[\]byte(C.GoString(policyJSON)))#d.PolicySet(uint16(networkID), []byte(C.GoString(policyJSON)), "")#' \
-      libpilot/bindings.go
+# ASSERT (ex-PATCH 1) — upstream libpilot now passes adminToken to the 3-arg
+# common/driver.PolicySet natively. If a future pin loses this, the build fails
+# here: re-add the old sed patch (history: git log on this file; procedure:
+# docs/upgrading-pins.md).
+RUN grep -qF 'C.GoString(adminToken)' libpilot/bindings.go
 
-# PATCH 2 — no-op //export stubs for the 3 symbols the SDK needs but libpilot lacks.
+# PATCH — no-op //export stubs for the 3 symbols the SDK needs but libpilot
+# lacks (PilotSetTaskExec, PilotManagedScore, PilotManagedRankings). If a future
+# pin exports any of these natively, the build fails with a duplicate-symbol
+# error — trim the stub file accordingly.
 COPY docker/patches/libpilot-stubs.go /src/libpilot/zz_pp_stubs.go
 
 WORKDIR /src/libpilot

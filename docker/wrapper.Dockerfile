@@ -57,13 +57,15 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 # Copy manifests first for layer-cached dependency install.
-COPY app/package.json app/tsconfig.json app/tsup.config.ts ./
+COPY app/package.json app/package-lock.json app/tsconfig.json app/tsup.config.ts ./
 
-# Full install (incl. devDeps: typescript, tsup, tsx, @types/node).
-# `pilotprotocol@latest` is the sdk-node package (org/sdk-node/package.json:2);
+# Full install (incl. devDeps: typescript, tsup, tsx, @types/node) — `npm ci`
+# against the committed lockfile so the dependency tree (and therefore the
+# release tarball sha) is reproducible. `pilotprotocol` is the sdk-node package
+# (org/sdk-node/package.json:2), pinned to an exact version in package.json;
 # it ships a prebuilt FFI binding (PilotConnect), so no compiler is required.
 # If a future sdk-node release needs node-gyp, add build-essential + python3 here.
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # Bring in the TypeScript sources and the manifest.
 COPY app/src ./src
@@ -80,7 +82,8 @@ RUN npm run typecheck \
 FROM node:22-bookworm-slim AS prune
 WORKDIR /app
 COPY app/package.json ./package.json
-RUN npm install --omit=dev --no-audit --no-fund
+COPY app/package-lock.json ./package-lock.json
+RUN npm ci --omit=dev --no-audit --no-fund
 
 # ── Stage 3: bundle — the artifact the provider-daemon image copies ──────────
 # Final image is the self-contained app tree; it does NOT run on its own (the

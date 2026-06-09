@@ -1,0 +1,21 @@
+# Pinned commit SHAs for the github.com/pilot-protocol/* sibling repos that
+# libpilot's go.mod `replace => ../<name>` layout requires (see
+# docker/libpilot.Dockerfile). One `<repo> <sha>` per line; lines starting
+# with '#' are ignored. Resolved 2026-06-09 from each repo's HEAD.
+# To bump: see docs/upgrading-pins.md (mandatory --no-cache rebuild + smoke).
+common b75076a4bb14036ff256c19a0cf5e41e12089864
+handshake 25c63daa5e75c0f8e37cb087978e4c102b740132
+policy 2fa2c820234aa79a743afb4c76e6ff701e8c60d3
+runtime e7898bc50809621d2b460b4869ff3d987435b152
+skillinject 7be992160c45d9b31a8cd4465cb93e7a409a5d34
+trustedagents 637f351900241396ca9f59fb04b3a2e98e23b384
+rendezvous 88d368d6f1a3d62eb880297e577b133ac6bb51ba
+beacon c45deed41490d3e38de252de162d683297d323e4
+dataexchange 326afd8459110c6e798000a689fac0fff6c05537
+eventstream 803985af116b70d6ae1eee74c0ef376e60121d34
+gateway b19c1140069dd6cf03889e14dbf2b2e485b65b08
+nameserver 840af338ac1b64e631cfba856e30db1cf755dbb0
+webhook 1b27c8f4db47d4c7063f779956d758be5d91010e
+updater 9a1ed7b6a7ebb46a7fa985b7faba66955640483c
+app-store e32b6ecda44cb8c3d6d50b6571063a5802f1696d
+libpilot bb2287d44630106b92b8f07ce20c683a2fed0975
