@@ -231,7 +231,7 @@ interface VerifyResp {
 /**
  * Our payee identity. Prefer the 0x EVM recipient (wallet.evm.address); on a
  * mock/offline wallet (no EVM binding) that method is absent, so fall back to
- * the pilot address (wallet.address). cite: INTERFACES.md §5.
+ * the pilot address (wallet.address).
  */
 export async function walletAddress(conn: WalletConn): Promise<string> {
   try {
@@ -250,7 +250,7 @@ export async function walletAddress(conn: WalletConn): Promise<string> {
  * Verify a caller's proof of payment against a Contract.
  *
  * Routing is by the receipt's method_id (mirrors the wallet's own implicit
- * routing — cite: INTERFACES.md §5 "How to request the MOCK method"):
+ * routing):
  *   - EVM_METHOD_ID  -> wallet.evm.verify {contract, receipt}
  *   - MOCK_METHOD_ID -> wallet.verify {challenge, signed_auth}, where the
  *     receipt.payload is base64(JSON SignedAuth) and the challenge is derived

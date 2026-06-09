@@ -1,8 +1,7 @@
 #
 # ideon.Dockerfile — Ideon MCP HTTP server (the `ideon_write` tool we wrap).
 #
-# Pinned to @telepat/ideon@0.1.38 (PROVENANCE.md). Runs in the PRIVATE, air-gapped
-# network; our wrapper reaches it at http://ideon:3001/mcp.
+# Pinned to @telepat/ideon@0.1.38. Our wrapper reaches it at http://ideon-mcp:3001/mcp.
 #
 # Serve command + flag defaults are mirrored from upstream
 # (telepat/ideon/src/cli/app.ts:123-128):
@@ -14,10 +13,10 @@
 # httpServer.ts:41,52-54): POST /mcp `initialize` (Bearer key) -> capture the
 # `Mcp-Session-Id` response header -> subsequent POST /mcp `tools/call`.
 #
-# Tool: `ideon_write`, required input ["idea"] (tools.ts:360-369). For the
-# air-gapped smoke test the wrapper calls it with dryRun:true, which writes a
-# placeholder article + meta.json under $IDEON_HOME/.ideon/output/<...> and
-# contacts NO external provider (no OpenRouter/Replicate needed).
+# Tool: `ideon_write`, required input ["idea"] (tools.ts:360-369). With dryRun:true
+# the wrapper gets a placeholder article + meta.json under
+# $IDEON_HOME/.ideon/output/<...> and contacts no external provider; with
+# dryRun:false it generates real content (needs OpenRouter/Replicate keys).
 
 FROM node:22-bookworm-slim
 

@@ -4,7 +4,7 @@
  * This file is the SINGLE source of truth that every module author codes
  * against. Types and exported function SIGNATURES live here; implementations
  * live in their named modules. Do not change a signature here without
- * updating INTERFACES.md and notifying parallel authors.
+ * notifying parallel authors.
  *
  * Two distinct wire formats are in play and MUST NOT be conflated:
  *
@@ -167,10 +167,10 @@ export type ArticleResponse = QuoteResponse | DeliverResponse;
  *   --socket <app.sock>         unix socket WE must create (readiness signal)
  *   --identity <path>           our ed25519 identity file
  *   --manifest <path>           pinned manifest.json
- *   --cap-state <path>          JSONL spend-cap log (unused by us; payee role)
+ *   --cap-state <path>          JSONL cap-state log (unused by us; payee role)
  *
  * NOTE: the daemon DATA-PLANE socket is NOT in these flags. It is found via
- * $PILOT_SOCKET / driver.DefaultSocketPath() (inherited env). See INTERFACES.md.
+ * $PILOT_SOCKET / driver.DefaultSocketPath() (inherited env).
  */
 export interface LifecycleFlags {
   addr: string;
@@ -282,7 +282,7 @@ export interface IdeonWriteOpts {
   style?: string;
   intent?: string;
   length?: string | number;
-  /** Default true for the air-gapped smoke test (writes placeholder output). */
+  /** Default true for the smoke test (writes placeholder output). */
   dryRun?: boolean;
 }
 /** Mirror of ideon_write structuredContent.

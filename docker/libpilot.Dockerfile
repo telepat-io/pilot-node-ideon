@@ -7,12 +7,10 @@
 # libpilot/go.mod uses local `replace => ../<name>` for the monorepo (../web4)
 # and ~15 org modules, so it builds ONLY in a side-by-side checkout. We clone the
 # repos as siblings under /src (web4 = the monorepo) and build with
-# `-tags no_skillinject` (the SDK never starts libpilot's embedded daemon — it
-# only uses the client path — so the injector can't run; compiling it out
-# guarantees it cannot even exist in the .so).
+# `-tags no_skillinject`.
 #
-# TWO LOCAL PATCHES are applied (the org repos are versioned inconsistently and
-# libpilot@HEAD lags the rest of the cascade — see PROVENANCE.md):
+# TWO LOCAL PATCHES are applied (the org repos are versioned inconsistently, so
+# libpilot's checkout needs reconciling with the rest):
 #   1. sed: common/driver.PolicySet gained a 3rd `adminToken string` arg that
 #      libpilot's bindings.go hasn't adopted. We pass "" (unused by our app).
 #   2. COPY docker/patches/libpilot-stubs.go: no-op //export stubs for 3 symbols

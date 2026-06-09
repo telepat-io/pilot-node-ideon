@@ -3,10 +3,10 @@
 # smoke-deliver.sh — VERIFIED end-to-end check (pay(mock)+deliver leg).
 #
 # Builds on scripts/smoke-quote.sh (the request path). Proves the full money
-# path on the private air-gapped network:
+# path on the local test network:
 #   quote   -> caller gets a USDC PaymentContract.
-#   pay      -> a STANDALONE mock payer wallet (service `caller-wallet`, no
-#              --manifest => no spend caps) is funded (wallet.topup) and signs
+#   pay      -> a STANDALONE mock payer wallet (service `caller-wallet`) funds
+#              itself (wallet.topup) and signs
 #              the contract (wallet.pay) into a Receipt. (scripts/pay-client.mjs)
 #   deliver  -> caller sends {op:deliver, contract, receipt}; the provider
 #              VERIFIES the receipt via its supervised wallet (signature-only,
@@ -24,6 +24,7 @@
 # Prereq: scripts/build-all.sh then `docker compose up -d` (all services healthy).
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"; cd "${ROOT}"
+export COMPOSE_FILE="${COMPOSE_FILE:-compose.smoke.yaml}"   # target the smoke topology, not prod compose.yaml
 PROJECT="${COMPOSE_PROJECT:-ideon-article-smoke}"
 NET="${PROJECT}_pilot-net"
 CALLER_RUN_VOL="${PROJECT}_caller-run"
@@ -148,4 +149,3 @@ ok "replay rejected ('already delivered'); Ideon did NOT re-run (dirs steady at 
 
 # ── done ─────────────────────────────────────────────────────────────────────
 ok "PASS ✅  quote -> pay(mock) -> deliver verified; bogus + replay correctly refused."
-log "next: scripts/assert-host-clean.sh  (confirm host ~/.claude untouched)"

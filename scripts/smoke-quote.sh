@@ -2,13 +2,14 @@
 #
 # smoke-quote.sh — VERIFIED end-to-end check (request path): the caller node
 # dials the provider's request-article capability over the overlay and asserts a
-# USDC PaymentContract comes back. Proves: private air-gapped rendezvous, two
+# USDC PaymentContract comes back. Proves: the local rendezvous, two
 # trusted nodes, the supervised wrapper, and the dataexchange request/reply path.
 #
-# Prereq: scripts/build-all.sh then `docker compose up -d` (all 4 services healthy).
+# Prereq: scripts/build-all.sh then `docker compose -f compose.smoke.yaml up -d`.
 # (The pay(mock)+deliver leg is scripts/smoke-deliver.sh — see README "status".)
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"; cd "${ROOT}"
+export COMPOSE_FILE="${COMPOSE_FILE:-compose.smoke.yaml}"   # target the smoke topology, not prod compose.yaml
 PROJECT="${COMPOSE_PROJECT:-ideon-article-smoke}"
 NET="${PROJECT}_pilot-net"
 CALLER_RUN_VOL="${PROJECT}_caller-run"

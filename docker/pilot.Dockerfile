@@ -10,30 +10,13 @@
 #
 # ONE image, MANY roles. This same image backs every Go service in compose:
 #   - the `rendezvous` service runs:  rendezvous -registry-addr :9000 -beacon-addr :9001 -http :3000 ...
-#   - the `daemon`/`provider`/`caller` services run:  pilot-daemon -registry rendezvous:9000 ...
+#   - the `daemon`/`provider` services run:  pilot-daemon -registry rendezvous:9000 ...
 # The differing ENTRYPOINT/CMD is supplied by compose, NOT baked here.
 #
-# ---------------------------------------------------------------------------
-# Why `-tags no_skillinject` is MANDATORY for pilot-daemon
-# ---------------------------------------------------------------------------
-# The upstream `skillinject` package ships two mutually-exclusive files gated by
-# a build tag (verified in the upstream org/skillinject):
-#     service.go           //go:build !no_skillinject   (the LIVE injector)
-#     service_disabled.go  //go:build  no_skillinject   (a no-op stub)
-# The live injector periodically (every ~15m) REWRITES the host operator's
-# ~/.claude/CLAUDE.md and other agent skill files. Compiling WITHOUT the tag
-# would bake that behavior into our daemon. Building with `-tags no_skillinject`
-# selects service_disabled.go; NewService/Config still compile (the stub keeps
-# the same surface), so nothing downstream breaks. This is a hard requirement.
-#
-# ---------------------------------------------------------------------------
-# HOME is container-local — we never touch host paths
-# ---------------------------------------------------------------------------
-# The final stage creates a non-root `pilot` user with HOME=/home/pilot living
-# entirely INSIDE the image/container. We do NOT mount, bind, or pre-create any
-# host directory, and (combined with no_skillinject) nothing in this image can
-# reach the host operator's $HOME. The daemon's app InstallRoot ($HOME/.pilot/
-# apps) therefore resolves to /home/pilot/.pilot/apps inside the container.
+# The daemon is built with `-tags no_skillinject`. The final stage runs as a
+# non-root `pilot` user with a container-local HOME=/home/pilot; no host path is
+# mounted, bound, or pre-created. The app InstallRoot ($HOME/.pilot/apps) resolves
+# to /home/pilot/.pilot/apps inside the container.
 # ===========================================================================
 
 
@@ -71,7 +54,7 @@ WORKDIR /src/monorepo
 # Pre-fetch modules in a cached layer (optional but speeds rebuilds).
 RUN go mod download
 
-# pilot-daemon — REQUIRES -tags no_skillinject (see header block).
+# pilot-daemon — built with -tags no_skillinject.
 # Flags exercised by compose live in cmd/daemon/main.go (-registry/-beacon/
 # -socket/-identity/-public/-trust-auto-approve/-hostname/-no-dataexchange/
 # -listen/-log-level).
@@ -79,8 +62,7 @@ RUN go build -tags no_skillinject -ldflags "-s -w" \
         -o /out/pilot-daemon ./cmd/daemon
 
 # pilotctl — the appstore/daemon CLI (gen-key, sign, verify, install, list, call).
-# Built with the same tag for consistency; pilotctl does not link skillinject's
-# live path but keeping the tag avoids any divergence.
+# Built with the same tag for consistency.
 RUN go build -tags no_skillinject -ldflags "-s -w" \
         -o /out/pilotctl ./cmd/pilotctl
 
@@ -127,7 +109,7 @@ COPY --from=builder /out/rendezvous   /usr/local/bin/rendezvous
 
 # Non-root container-local user. HOME=/home/pilot is entirely inside the
 # container; we deliberately do NOT mount or pre-create host paths (compose may
-# attach named volumes for state, but never the host operator's home).
+# attach named volumes for state, but not host paths).
 RUN useradd --create-home --home-dir /home/pilot --shell /usr/sbin/nologin --uid 10001 pilot
 ENV HOME=/home/pilot
 USER pilot

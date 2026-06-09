@@ -9,7 +9,7 @@
  * Per accepted conn: read the 8-byte dataexchange header [4B type BE][4B len BE],
  * read the body, post the JSON payload to the main thread, BLOCK on
  * Atomics.wait until the main thread posts the encoded reply frame back, then
- * write it. cite: INTERFACES.md §1 "Minimal connect → listen → accept …".
+ * write it.
  */
 
 import { parentPort, workerData, receiveMessageOnPort } from 'node:worker_threads';
@@ -51,7 +51,7 @@ function sleep(ms: number): void {
 }
 
 /** conn.read() may short-read; loop until n bytes are gathered.
- *  cite: INTERFACES.md §1 readExactly. */
+ * */
 function readExactly(conn: ConnLike, n: number): Buffer {
   if (n === 0) return Buffer.alloc(0);
   const parts: Buffer[] = [];

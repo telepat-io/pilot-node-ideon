@@ -14,7 +14,7 @@
  *
  * NOTE on maxImages: zod is `z.coerce.number().int().min(1)` in 0.1.38
  * (cite: tools.ts:22) so maxImages:0 is REJECTED. We OMIT maxImages and rely on
- * dryRun to suppress real image generation. cite: INTERFACES.md OPEN QUESTION 4.
+ * dryRun to suppress real image generation.
  */
 
 import { readFile } from 'node:fs/promises';

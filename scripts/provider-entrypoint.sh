@@ -11,9 +11,6 @@
 # signature + binary sha256, and supervises both apps. The app dir must be
 # WRITABLE (named volume, not a read-only bind) because the supervisor writes
 # app.sock / data.db / identity.json / cap-state.jsonl into it.
-#
-# HARD SAFETY: the daemon is the no_skillinject build and HOME is the
-# container-local /home/pilot — nothing here can touch the host operator ~/.claude.
 set -euo pipefail
 
 HOME_DIR="${HOME:-/home/pilot}"

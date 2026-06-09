@@ -5,10 +5,10 @@
  * We open our OWN sdk-node Driver to the daemon's data-plane unix socket
  * ($PILOT_SOCKET, default /tmp/pilot.sock) and listen(1001). The daemon must be
  * run with -no-dataexchange so port 1001 is free for us to own.
- * cite: INTERFACES.md §2(a); org/sdk-node/src/client.ts:189-193,328-333.
+ * cite: org/sdk-node/src/client.ts:189-193,328-333.
  *
  * Request and response both travel as a single DxType.JSON frame.
- * cite: INTERFACES.md §3; org/dataexchange/dataexchange.go:85-92.
+ * cite: org/dataexchange/dataexchange.go:85-92.
  *
  * Driver.listen/accept/read/write are SYNCHRONOUS + BLOCKING (FFI). We run the
  * accept/read/write loop on a worker thread so the Node event loop (and our

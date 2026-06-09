@@ -196,7 +196,7 @@ echo "  publisher key  : ${KEY_FILE}  (mode 0600 — keep secret, NOT in the bun
 echo "  publisher pub  : $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["store"]["publisher"])' "${MANIFEST}")"
 echo
 cat <<EOF
-LOCAL INSTALL (air-gapped smoke test) — unpack the staging tree into a bundle
+LOCAL INSTALL — unpack the staging tree into a bundle
 dir and hand it to the provider daemon's app store:
 
     tar -xzf "${TARBALL}" -C /path/to/bundle-dir
@@ -217,6 +217,5 @@ script):
       compromised CDN be detected — fetchAndUnpackBundle re-checks it.)
   3. Add the publisher pubkey above to the daemon's compile-time
      manifest.TrustedPublishers anchor (manifest.go:225) so VerifyTrustAnchor
-     passes off the air-gapped network. (Air-gapped smoke test uses the daemon's
-     -trust-auto-approve instead.)
+     passes. (The smoke test uses the daemon's -trust-auto-approve instead.)
 EOF

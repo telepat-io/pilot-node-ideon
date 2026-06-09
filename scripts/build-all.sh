@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-all.sh — build every image, the libpilot.so FFI, and the signed bundles
-# for the io.telepat.ideon-article air-gapped node. Run this, then `docker
+# for the io.telepat.ideon-article node. Run this, then `docker
 # compose up -d`, then scripts/smoke-quote.sh.
 #
 # Nothing here RUNS any Pilot service on the host — every Go/Node build happens
@@ -43,7 +43,7 @@ docker build -f docker/wrapper.Dockerfile -t pilot-protocol/ideon-article:dev .
 log "5/5 assemble + sign bundles (wallet + ideon-article)"
 bash scripts/assemble-bundles.sh
 
-log "DONE. Next:"
-log "  IDEON_MCP_API_KEY=changeme docker compose up -d"
+log "DONE. Next (smoke test):"
+log "  IDEON_MCP_API_KEY=changeme docker compose -f compose.smoke.yaml up -d"
 log "  scripts/smoke-quote.sh         # caller -> provider quote round-trip"
-log "  scripts/assert-host-clean.sh   # confirm host ~/.claude untouched"
+log "  scripts/smoke-deliver.sh       # pay(mock) -> deliver"

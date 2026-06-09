@@ -1,7 +1,7 @@
 /**
  * wrapper.ts — entrypoint orchestration for the io.telepat.ideon-article app.
  *
- * Lifecycle (cite: INTERFACES.md §2; supervisor.go:752-808):
+ * Lifecycle (cite: supervisor.go:752-808):
  *   1. Parse the six lifecycle flags (--addr --db --socket --identity
  *      --manifest --cap-state); tolerate unknown flags.
  *   2. Open the --socket unix listener (supervisor readiness signal).
@@ -12,7 +12,7 @@
  *                        (do NOT call Ideon); dedupe replay; ideonWrite; deliver.
  *   5. Structured logging to stderr throughout.
  *
- * Env (inherited from the daemon, cite: INTERFACES.md §2):
+ * Env (inherited from the daemon):
  *   PILOT_SOCKET        daemon data-plane unix socket (default /tmp/pilot.sock)
  *   IDEON_MCP_ENDPOINT  e.g. http://ideon:3001/mcp
  *   IDEON_MCP_API_KEY   bearer key for Ideon MCP
@@ -34,9 +34,9 @@ import { markDelivered } from './dedupe.js';
 import { frameArticle } from './deliver.js';
 import { log } from './log.js';
 
-/** The capability/overlay port (1001 == dataexchange). cite: INTERFACES.md §1. */
+/** The capability/overlay port (1001 == dataexchange). */
 const CAPABILITY_PORT = 1001;
-/** Wallet app id. cite: org/wallet manifest.json id; INTERFACES.md §2(b). */
+/** Wallet app id. cite: org/wallet manifest.json id. */
 const WALLET_APP_ID = 'io.pilot.wallet';
 
 /** Parse the six supervisor flags; ignore anything unrecognized. */
@@ -76,7 +76,7 @@ export function parseFlags(argv: string[]): LifecycleFlags {
 /**
  * Resolve the sibling wallet app.sock from our own --socket flag.
  * <InstallRoot>/<our_id>/app.sock -> <InstallRoot>/io.pilot.wallet/app.sock.
- * cite: INTERFACES.md §2(b); supervisor.go:225-296.
+ * cite: supervisor.go:225-296.
  */
 export function walletSockPath(ourSocket: string): string {
   const installRoot = path.join(path.dirname(ourSocket), '..');

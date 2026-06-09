@@ -74,7 +74,7 @@ export function ideonLengthFor(length?: string | number): string | number | unde
  *   - expires_at: now + ttlSeconds, RFC3339 (Date.toISOString() is RFC3339).
  *   - nonce: fresh 16-byte hex (replay defense + dedupe key uniqueness).
  *   - accepted_methods: configurable (defaults to [MOCK_METHOD_ID] for the
- *     air-gapped smoke test).
+ *     smoke test).
  */
 export function buildContract(opts: BuildContractOpts): PaymentContract {
   const expiresAt = new Date(Date.now() + opts.ttlSeconds * 1000).toISOString();

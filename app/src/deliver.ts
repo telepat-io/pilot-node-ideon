@@ -3,7 +3,7 @@
  *
  * The primary response carries the markdown body inline (DeliverResponse.article)
  * so a peer using Driver.sendMessage(target, json, 'json') gets the article in
- * one round-trip. cite: app/src/types.ts DeliverResponse; INTERFACES.md §3.
+ * one round-trip. cite: app/src/types.ts DeliverResponse.
  *
  * For a file-oriented transfer (peer pulling raw files), buildFileFrames() emits
  * one DxType.FILE frame per artifact (article-1.md + meta.json) using the

@@ -1,4 +1,4 @@
-# compose.yaml — PRIVATE, AIR-GAPPED Pilot network for the ideon-article smoke test.
+# compose.smoke.yaml — isolated local network for the ideon-article regression test.
 #
 #   rendezvous (registry :9000 / beacon :9001 / dashboard :3000)
 #        ▲                    ▲
@@ -7,14 +7,12 @@
 #     └─ io.telepat.ideon-article (supervised; OUR app — listens dataexchange :1001)
 #        └─ HTTP MCP → ideon-mcp (ideon mcp serve-http, dry-run)
 #
-# Air gap: `pilot-net` is `internal: true` → NO route to the host/internet. The
-# daemons talk ONLY to our private rendezvous; they can NEVER reach Pilot's real
-# 34.71.57.205 registry/beacon. Ideon dry-run makes no external calls.
+# `pilot-net` is `internal: true` (no egress): the daemons talk only to the local
+# rendezvous and Ideon runs dry-run, so the test needs no outbound network.
 #
-# Safety: every pilot image is the no_skillinject build; HOME is the
-# container-local /home/pilot; we mount ONLY ./bundles and ./scripts read-only —
-# never the host $HOME or ~/.claude. All writable state lives under /home/pilot
-# (image `pilot` user owns it) so no root/volume juggling is needed.
+# The pilot image is the no_skillinject build; HOME is the container-local
+# /home/pilot; only ./bundles and ./scripts are mounted (read-only). All writable
+# state lives under /home/pilot.
 name: ideon-article-smoke
 
 networks:
@@ -73,9 +71,8 @@ services:
       IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
       WALLET_BUNDLE: /bundles/io.pilot.wallet
       APP_BUNDLE: /bundles/io.telepat.ideon-article
-      # libpilot.so for the sdk-node FFI (built from source, no_skillinject —
-      # the npm platform package is unpublished). Inherited by the supervised
-      # app, which the FFI loader honors first (org/sdk-node/src/ffi.ts:58-62).
+      # libpilot.so for the sdk-node FFI (built from source). Inherited by the
+      # supervised app, which the FFI loader honors first (org/sdk-node/src/ffi.ts:58-62).
       PILOT_LIB_PATH: /opt/libpilot.so
     volumes:
       - ./bundles:/bundles:ro
@@ -119,18 +116,12 @@ services:
       start_period: 6s
 
   # Standalone MOCK payer wallet for the deliver smoke test (scripts/smoke-deliver.sh).
-  # NOT supervised and deliberately NO --manifest: the upstream wallet manifest ships a
-  # key.sign spend cap of `limit: 100`, which spendcap.go reads as 100 USDC MINOR units
-  # (= $0.0001/day), so a supervised wallet rejects any real payment with
-  # ErrSpendCapExceeded. A standalone wallet loads no caps (cmd/wallet/main.go:187).
-  # The wallet binary in pilot:dev (go install ...@latest) is the published release,
-  # which predates the EVM split on `main` — it is inherently MOCK-ONLY
-  # (io.pilot.wallet-mock/v1), exposes no wallet.evm.* methods, and has no -no-evm
-  # flag. That is exactly what we want here (no secp256k1 key, no RPC, no egress).
-  # The payer client (pay-client.mjs) runs via `docker compose exec` INTO this
-  # container, reaching the socket locally as the same uid (no cross-container perms).
-  # This is pure test scaffolding (the PAYER); the shipped product is the provider.
-  # Tracked as an upstream wallet spend-cap units issue.
+  # Runs without --manifest, as a standalone payer (cmd/wallet/main.go:187). The
+  # wallet binary in pilot:dev is the published release: mock-only
+  # (io.pilot.wallet-mock/v1), no wallet.evm.* methods — all the test needs (no key,
+  # no RPC, no egress). The payer client (pay-client.mjs) runs via `docker compose
+  # exec` into this container, reaching the socket locally as the same uid. Pure test
+  # scaffolding (the PAYER); the shipped product is the provider.
   caller-wallet:
     image: pilot-protocol/pilot:dev
     environment: { HOME: /home/pilot }

@@ -7,15 +7,12 @@
 #                      can reach the request-article capability on dataexchange :1001.
 #
 # USAGE: cp .env.example .env  (fill it in)  →  docker compose up -d
-# For the air-gapped mock + dry-run regression test, use compose.smoke.yaml instead.
+# For the mock + dry-run regression test, use compose.smoke.yaml instead.
 #
-# HARD SAFETY (enforced in production too):
-#   - the pilot image is the no_skillinject build — the subsystem that rewrites the
-#     operator's ~/.claude/CLAUDE.md on a timer is compiled OUT;
-#   - HOME is the container-local /home/pilot — the host $HOME / ~/.claude is NEVER
-#     mounted into any service.
-# Unlike compose.smoke.yaml this network is NOT `internal: true`: production needs
-# egress for real generation (OpenRouter/Replicate) and to reach the Pilot overlay.
+# The pilot image is the no_skillinject build and HOME is the container-local
+# /home/pilot; no host path is mounted into any service. Unlike compose.smoke.yaml
+# this network is NOT `internal: true`: production needs egress for real generation
+# (OpenRouter/Replicate) and to reach the Pilot overlay.
 #
 # Prereq: build the images + libpilot.so + signed bundles first (host-safe, all
 # compilation happens inside docker/*.Dockerfile):  scripts/build-all.sh
