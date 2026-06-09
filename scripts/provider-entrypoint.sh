@@ -30,15 +30,27 @@ log() { printf '\033[1;36m[provider-entrypoint]\033[0m %s\n' "$*" >&2; }
 mkdir -p "${APPS_DIR}" "${RUN_DIR}" "$(dirname "${IDENTITY}")"
 [ -S "${SOCK}" ] && rm -f "${SOCK}" || true
 
-# Place the signed bundles into the writable install root (full copy).
+# Install each signed bundle into the writable install root. By default we install
+# ONLY if the app dir is not already provisioned, which PRESERVES the supervised
+# app's runtime state across restarts — the wallet's identity.json + data.db (its
+# keys + ledger) and our app's state. Unconditionally wiping would regenerate the
+# wallet identity on every boot and orphan any funds tied to the old payee address.
+# Set PILOT_REINSTALL_APPS=1 to force a clean reinstall when deploying a new bundle
+# (back up the app dir first — a reinstall drops identity/db).
+REINSTALL="${PILOT_REINSTALL_APPS:-0}"
 for b in "${WALLET_BUNDLE}" "${APP_BUNDLE}"; do
   if [ -d "${b}" ] && [ -f "${b}/manifest.json" ]; then
     id="$(basename "${b}")"
-    log "installing bundle ${id} -> ${APPS_DIR}/${id} (full copy, preserves node_modules)"
-    rm -rf "${APPS_DIR:?}/${id}"
-    cp -a "${b}" "${APPS_DIR}/${id}"
-    binrel="$(grep -oE '"path"[[:space:]]*:[[:space:]]*"[^"]+"' "${APPS_DIR}/${id}/manifest.json" | head -1 | sed -E 's/.*"path"[^"]*"([^"]+)".*/\1/')"
-    [ -n "${binrel}" ] && chmod +x "${APPS_DIR}/${id}/${binrel}" 2>/dev/null || true
+    dest="${APPS_DIR}/${id}"
+    if [ -f "${dest}/manifest.json" ] && [ "${REINSTALL}" != "1" ]; then
+      log "keeping existing install ${id} (preserves identity/db; PILOT_REINSTALL_APPS=1 to refresh)"
+    else
+      log "installing bundle ${id} -> ${dest} (full copy, preserves node_modules)"
+      rm -rf "${dest:?}"
+      cp -a "${b}" "${dest}"
+    fi
+    binrel="$(grep -oE '"path"[[:space:]]*:[[:space:]]*"[^"]+"' "${dest}/manifest.json" | head -1 | sed -E 's/.*"path"[^"]*"([^"]+)".*/\1/')"
+    [ -n "${binrel}" ] && chmod +x "${dest}/${binrel}" 2>/dev/null || true
   else
     log "WARN: bundle dir not found or missing manifest: ${b} (skipping)"
   fi
