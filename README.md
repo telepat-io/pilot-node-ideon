@@ -39,8 +39,9 @@ scripts/build-all.sh
 ```
 
 builds the images and signed bundles (see **Containers** below) plus
-`build/libpilot.so`, all inside `docker/*.Dockerfile`. Pin a reproducible upstream
-with `PILOT_REF=<sha> scripts/build-all.sh`.
+`build/libpilot.so`, all inside `docker/*.Dockerfile`. Upstream refs are pinned to
+exact commit SHAs by default (see `docs/upgrading-pins.md`); override for
+development with `PILOT_REF=<ref> scripts/build-all.sh`.
 
 ## Containers (dev vs prod)
 
@@ -104,22 +105,34 @@ docker compose logs -f provider-daemon
 ## Build & sign a release (for catalogue submission)
 
 ```sh
-scripts/sign-bundle.sh --key /path/to/publisher.key --out dist
+scripts/sign-bundle.sh --key /path/to/publisher.key --out dist \
+    [--bundle-url-base https://github.com/telepat-io/pilot-node-ideon/releases/download/<tag>]
 ```
 
-builds `bin/main.js`, pins `binary.sha256` into `app/manifest.json`, signs the
-manifest with the ed25519 publisher key (`pilotctl appstore sign`), and produces a
-deterministic `dist/io.telepat.ideon-article-<version>.tar.gz` + `.sha256`. The
-script prints the catalogue entry to hand to a Pilot maintainer:
+builds the bundle **from the wrapper image** (npm ci + typecheck + tsup, all in
+Docker), stages its complete `/app` tree (`bin/main.js` + `bin/pilotServerWorker.js`
++ `manifest.json` + `package.json` + prod-only `node_modules`), pins
+`binary.sha256` into the **staged** manifest, signs it with the ed25519 publisher
+key (`pilotctl appstore sign`), and produces a reproducible
+`dist/io.telepat.ideon-article-<version>.tar.gz` + `.sha256` +
+`catalogue-entry.json` (the same commit re-signs to the same tarball sha —
+`app/package-lock.json` pins the dependency tree).
 
-```json
-{ "id": "io.telepat.ideon-article", "version": "<app_version>",
-  "description": "...", "bundle_url": "https://.../<tarball>",
-  "bundle_sha256": "<sha>" }
-```
+**Key custody + verification model.** The publisher private key is never stored
+on GitHub — not in this repo (`/secure/` is gitignored) and not as a CI secret.
+Releases are signed locally by the maintainer and published as GitHub Releases;
+the [`verify-release` workflow](.github/workflows/verify-release.yml) then
+independently re-checks every published release from the public artifacts alone:
+tarball sha256, manifest id/version vs tag, the publisher identity against the
+pinned [`PUBLISHER.pub`](PUBLISHER.pub), the binary sha256 pin, and the embedded
+ed25519 signature (via `pilotctl` built from the pinned upstream ref).
 
-The publisher private key is not stored in this repo (`/secure/` is gitignored).
-Going live is maintainer-gated: a Pilot maintainer commits the catalogue entry.
+All upstream refs (Pilot monorepo, libpilot siblings, wallet/rendezvous) are
+pinned to exact SHAs/versions — see [docs/upgrading-pins.md](docs/upgrading-pins.md)
+for the inventory and the bump procedure.
+
+Going live is maintainer-gated: a Pilot maintainer commits the catalogue entry
+(`dist/catalogue-entry.json`) to the upstream catalogue.
 
 ## Layout
 
@@ -127,10 +140,13 @@ Going live is maintainer-gated: a Pilot maintainer commits the catalogue entry.
 .
 ├── README.md            # this file
 ├── LICENSE              # Apache-2.0
+├── PUBLISHER.pub        # pinned publisher pubkey (CI verifies releases against it)
 ├── compose.yaml         # production topology (provider + wallet + ideon + app)
 ├── compose.smoke.yaml   # isolated mock + dry-run regression test
 ├── .env.example         # environment template
-├── docker/              # Dockerfiles (compiled inside Docker)
+├── .github/workflows/   # ci (build gate) + verify-release (release integrity)
+├── docs/                # upgrading-pins.md (pin inventory + bump procedure)
+├── docker/              # Dockerfiles (compiled inside Docker; upstream pinned)
 ├── app/                 # the Node app (@telepat/ideon-article-app)
 │   ├── manifest.json    # app-store manifest (sha256/sig pinned by sign-bundle.sh)
 │   └── src/             # wrapper, capability server, wallet IPC, Ideon client, ...

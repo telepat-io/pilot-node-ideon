@@ -1,0 +1,132 @@
+# verify-release — independent integrity check of every published release.
+#
+# Releases are signed LOCALLY by the maintainer (the ed25519 publisher key is
+# never stored on GitHub — see README "Build & sign a release"). This workflow
+# is the public counterpart: for each published release it re-checks, from
+# nothing but the public artifacts,
+#   1. the .sha256 sidecar matches the tarball,
+#   2. the bundled manifest's id/app_version match the tag,
+#   3. store.publisher is exactly the pinned key in PUBLISHER.pub,
+#   4. sha256(bin/main.js) matches manifest binary.sha256,
+#   5. the embedded ed25519 signature verifies (`pilotctl appstore verify`,
+#      built from the pinned upstream ref — the REAL verifier, not a
+#      reimplementation of the signing payload),
+#   6. the release notes quote the correct tarball sha256.
+#
+# It does NOT fire for draft releases (GitHub semantics) — rehearse with a
+# --prerelease, not a --draft. Re-run manually with workflow_dispatch + tag.
+name: verify-release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to verify (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APP_ID: io.telepat.ideon-article
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Verifying release: ${TAG}"
+
+      # Checkout AT THE TAG so PUBLISHER.pub and the pilotctl Dockerfile pin
+      # used for verification are the ones committed at that release.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" -R "${{ github.repository }}" \
+            -p '*.tar.gz' -p '*.tar.gz.sha256' -D assets/
+          ls -la assets/
+
+      - name: Check tarball sha256 against sidecar
+        run: cd assets && sha256sum -c ./*.tar.gz.sha256
+
+      - name: Extract bundle
+        run: mkdir -p bundle && tar -xzf assets/*.tar.gz -C bundle && ls -la bundle/
+
+      - name: Assert manifest id + app_version match the tag
+        run: |
+          IS_PRE="$(gh release view "${{ steps.tag.outputs.tag }}" -R "${{ github.repository }}" --json isPrerelease -q .isPrerelease)"
+          python3 - "${{ steps.tag.outputs.tag }}" "$IS_PRE" <<'PY'
+          import json, re, sys
+          tag, is_pre = sys.argv[1], sys.argv[2] == "true"
+          m = json.load(open("bundle/manifest.json"))
+          assert m["id"] == "io.telepat.ideon-article", f"unexpected app id: {m['id']}"
+          version = tag.removeprefix("v")
+          ok = m["app_version"] == version
+          if not ok and is_pre:
+              # rc rehearsals: tag vX.Y.Z-rcN may carry app_version X.Y.Z
+              ok = m["app_version"] == re.sub(r"-rc\d+$", "", version)
+          assert ok, f"app_version {m['app_version']} does not match tag {tag}"
+          print(f"manifest OK: id={m['id']} app_version={m['app_version']} tag={tag}")
+          PY
+
+      - name: Assert publisher is the pinned key (PUBLISHER.pub)
+        run: |
+          EXPECTED="$(tr -d '[:space:]' < PUBLISHER.pub)"
+          ACTUAL="$(python3 -c 'import json;print(json.load(open("bundle/manifest.json"))["store"]["publisher"])')"
+          echo "expected: ${EXPECTED}"
+          echo "actual:   ${ACTUAL}"
+          test "${EXPECTED}" = "${ACTUAL}"
+
+      - name: Assert binary sha256 matches the manifest pin
+        run: |
+          PINNED="$(python3 -c 'import json;print(json.load(open("bundle/manifest.json"))["binary"]["sha256"])')"
+          ACTUAL="$(sha256sum bundle/bin/main.js | awk '{print $1}')"
+          echo "pinned: ${PINNED}"
+          echo "actual: ${ACTUAL}"
+          test "${PINNED}" = "${ACTUAL}"
+
+      - name: Build pilotctl (pinned upstream ref)
+        run: docker build -f docker/pilotctl.Dockerfile -t pilotctl:ci .
+
+      - name: Verify ed25519 signature (pilotctl appstore verify)
+        run: |
+          docker run --rm --network none \
+            -v "$PWD/bundle:/bundle:ro" \
+            pilotctl:ci appstore verify /bundle
+
+      - name: Assert release notes quote the tarball sha256
+        run: |
+          SHA="$(awk '{print $1}' assets/*.tar.gz.sha256)"
+          gh release view "${{ steps.tag.outputs.tag }}" -R "${{ github.repository }}" --json body -q .body | grep -F "${SHA}"
+
+      - name: Catalogue entry → job summary
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          SHA="$(awk '{print $1}' assets/*.tar.gz.sha256)"
+          TARBALL="$(basename assets/*.tar.gz)"
+          VERSION="$(python3 -c 'import json;print(json.load(open("bundle/manifest.json"))["app_version"])')"
+          {
+            echo "## ✅ Release ${TAG} verified"
+            echo
+            echo "sha256, manifest pins, publisher identity and ed25519 signature all check out."
+            echo
+            echo '```json'
+            python3 -c "
+          import json
+          print(json.dumps({
+            'id': '${APP_ID}',
+            'version': '${VERSION}',
+            'bundle_url': 'https://github.com/${{ github.repository }}/releases/download/${TAG}/${TARBALL}',
+            'bundle_sha256': '${SHA}',
+          }, indent=2))"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

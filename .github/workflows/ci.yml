@@ -1,0 +1,29 @@
+# ci — cheap build gate for pushes and PRs.
+#
+# Builds the wrapper bundle image: npm ci against the committed lockfile,
+# tsc --noEmit, tsup bundle, prod-pruned node_modules — all inside docker
+# (docker/wrapper.Dockerfile). No signing, no keys, no upstream Go builds
+# (those are pinned and exercised by verify-release / local builds).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wrapper bundle image (typecheck + tsup + prune)
+        run: docker build -f docker/wrapper.Dockerfile -t ideon-article:ci .
+
+      - name: Shellcheck scripts
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+          shellcheck scripts/*.sh
