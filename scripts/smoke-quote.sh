@@ -19,7 +19,7 @@ die() { printf '\033[1;31m[smoke-quote:FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 [ -f build/libpilot.so ] || die "build/libpilot.so missing — run scripts/build-all.sh first"
 
 log "waiting for provider app readiness (its app.sock == ready)"
-for i in $(seq 1 40); do
+for _ in $(seq 1 40); do
   st="$(docker inspect -f '{{.State.Health.Status}}' "${PROJECT}-provider-daemon-1" 2>/dev/null || echo none)"
   [ "${st}" = healthy ] && break
   sleep 2

@@ -24,6 +24,8 @@ jobs:
         run: docker build -f docker/wrapper.Dockerfile -t ideon-article:ci .
 
       - name: Shellcheck scripts
+        # -S warning: fail on warnings+errors; info-level style notes (e.g.
+        # SC2015 "A && B || C") are intentional idioms in these scripts.
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q shellcheck
-          shellcheck scripts/*.sh
+          shellcheck -S warning scripts/*.sh
