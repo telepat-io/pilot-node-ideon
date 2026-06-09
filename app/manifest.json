@@ -1,0 +1,30 @@
+{
+  "id": "io.telepat.ideon-article",
+  "app_version": "0.1.0",
+  "manifest_version": 1,
+  "binary": {
+    "runtime": "node",
+    "path": "bin/main.js",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "exposes": [],
+  "grants": [
+    {"cap": "fs.write", "target": "$APP/state.db"},
+    {"cap": "fs.read",  "target": "$APP/state.db"},
+    {"cap": "audit.log", "target": "*"},
+    {"cap": "net.dial", "target": "*.pilot",
+     "if": {"kind": "rate", "params": {"per": "min", "limit": 60}}},
+    {"cap": "net.dial", "target": "ideon-mcp",
+     "if": {"kind": "rate", "params": {"per": "min", "limit": 30}}},
+    {"cap": "ipc.call", "target": "io.pilot.wallet.wallet.evm.verify"},
+    {"cap": "ipc.call", "target": "io.pilot.wallet.wallet.evm.address"}
+  ],
+  "depends": [
+    {"app": "io.pilot.wallet", "methods": ["wallet.evm.verify", "wallet.evm.address"]}
+  ],
+  "protection": "guarded",
+  "store": {
+    "publisher": "ed25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "signature": "sig:placeholder-replaced-by-scripts/sign-bundle.sh"
+  }
+}

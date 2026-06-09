@@ -1,0 +1,146 @@
+# compose.yaml — PRIVATE, AIR-GAPPED Pilot network for the ideon-article smoke test.
+#
+#   rendezvous (registry :9000 / beacon :9001 / dashboard :3000)
+#        ▲                    ▲
+#   provider-daemon       caller-daemon
+#     ├─ io.pilot.wallet (supervised; mock payment)
+#     └─ io.telepat.ideon-article (supervised; OUR app — listens dataexchange :1001)
+#        └─ HTTP MCP → ideon-mcp (ideon mcp serve-http, dry-run)
+#
+# Air gap: `pilot-net` is `internal: true` → NO route to the host/internet. The
+# daemons talk ONLY to our private rendezvous; they can NEVER reach Pilot's real
+# 34.71.57.205 registry/beacon. Ideon dry-run makes no external calls.
+#
+# Safety: every pilot image is the no_skillinject build; HOME is the
+# container-local /home/pilot; we mount ONLY ./bundles and ./scripts read-only —
+# never the host $HOME or ~/.claude. All writable state lives under /home/pilot
+# (image `pilot` user owns it) so no root/volume juggling is needed.
+name: ideon-article-smoke
+
+networks:
+  pilot-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  caller-run:   # caller daemon IPC socket, shared with the smoke-test client
+  ideon-data:   # Ideon output root (/data/ideon). SHARED ideon-mcp <-> provider so
+                # the provider app can readFile the markdownPath ideon_write returns
+                # (ideonClient.ts:169-181 — ideon_write returns a PATH, not the body).
+
+x-pilot-env: &pilot-env
+  HOME: /home/pilot
+  PILOT_SOCKET: /home/pilot/run/pilot.sock
+  IDENTITY_PATH: /home/pilot/identity.json
+  RENDEZVOUS_REGISTRY: rendezvous:9000
+  RENDEZVOUS_BEACON: rendezvous:9001
+
+services:
+
+  rendezvous:
+    image: pilot-protocol/pilot:dev
+    command: ["rendezvous", "-registry-addr", ":9000", "-beacon-addr", ":9001", "-http", ":3000", "-store", "/home/pilot/reg.json", "-log-level", "info"]
+    environment: { HOME: /home/pilot }
+    networks: [pilot-net]
+    healthcheck:
+      # node is the only HTTP client in the slim image (no wget/curl).
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/healthz',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 3s
+      timeout: 4s
+      retries: 30
+      start_period: 4s
+
+  ideon-mcp:
+    image: pilot-protocol/ideon:dev
+    environment:
+      IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
+      TELEPAT_DISABLE_KEYTAR: "true"
+      IDEON_HOME: /data/ideon
+    volumes:
+      # ideon_write writes article-1.md + meta.json under $IDEON_HOME/.ideon/output/<stamp-slug>/.
+      # Shared with provider-daemon at the SAME path so the provider app can read it back.
+      - ideon-data:/data/ideon
+    networks: [pilot-net]
+
+  provider-daemon:
+    image: pilot-protocol/pilot:dev
+    entrypoint: ["/scripts/provider-entrypoint.sh"]
+    environment:
+      <<: *pilot-env
+      HOSTNAME_PILOT: provider
+      LOG_LEVEL: debug
+      IDEON_MCP_ENDPOINT: http://ideon-mcp:3001/mcp
+      IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
+      WALLET_BUNDLE: /bundles/io.pilot.wallet
+      APP_BUNDLE: /bundles/io.telepat.ideon-article
+      # libpilot.so for the sdk-node FFI (built from source, no_skillinject —
+      # the npm platform package is unpublished). Inherited by the supervised
+      # app, which the FFI loader honors first (org/sdk-node/src/ffi.ts:58-62).
+      PILOT_LIB_PATH: /opt/libpilot.so
+    volumes:
+      - ./bundles:/bundles:ro
+      - ./scripts:/scripts:ro
+      - ./build/libpilot.so:/opt/libpilot.so:ro
+      # Same Ideon output root as ideon-mcp, at the SAME absolute path, so the
+      # supervised app's readFile(markdownPath) resolves (ideonClient.ts:169-181).
+      - ideon-data:/data/ideon
+    networks: [pilot-net]
+    depends_on:
+      rendezvous: { condition: service_healthy }
+      ideon-mcp: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /home/pilot/.pilot/apps/io.telepat.ideon-article/app.sock"]
+      interval: 3s
+      timeout: 3s
+      retries: 50
+      start_period: 12s
+
+  caller-daemon:
+    image: pilot-protocol/pilot:dev
+    command: ["pilot-daemon", "-registry", "rendezvous:9000", "-beacon", "rendezvous:9001", "-socket", "/home/pilot/run/pilot.sock", "-identity", "/home/pilot/identity.json", "-public", "-trust-auto-approve", "-hostname", "caller", "-log-level", "debug"]
+    environment:
+      <<: *pilot-env
+      HOSTNAME_PILOT: caller
+    # run as root so the daemon can create its IPC socket inside the (root-owned)
+    # named volume; the smoke-test client (also root) then reads it. Ephemeral
+    # smoke test only — the provider keeps the non-root container-local layout.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /home/pilot/run && exec \"$0\" \"$@\""]
+    volumes:
+      - caller-run:/home/pilot/run   # named so the smoke test client can reach the daemon socket
+    networks: [pilot-net]
+    depends_on:
+      rendezvous: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /home/pilot/run/pilot.sock"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 6s
+
+  # Standalone MOCK payer wallet for the deliver smoke test (scripts/smoke-deliver.sh).
+  # NOT supervised and deliberately NO --manifest: the upstream wallet manifest ships a
+  # key.sign spend cap of `limit: 100`, which spendcap.go reads as 100 USDC MINOR units
+  # (= $0.0001/day), so a supervised wallet rejects any real payment with
+  # ErrSpendCapExceeded. A standalone wallet loads no caps (cmd/wallet/main.go:187).
+  # The wallet binary in pilot:dev (go install ...@latest) is the published release,
+  # which predates the EVM split on `main` — it is inherently MOCK-ONLY
+  # (io.pilot.wallet-mock/v1), exposes no wallet.evm.* methods, and has no -no-evm
+  # flag. That is exactly what we want here (no secp256k1 key, no RPC, no egress).
+  # The payer client (pay-client.mjs) runs via `docker compose exec` INTO this
+  # container, reaching the socket locally as the same uid (no cross-container perms).
+  # This is pure test scaffolding (the PAYER); the shipped product is the provider.
+  # Tracked as an upstream wallet spend-cap units issue.
+  caller-wallet:
+    image: pilot-protocol/pilot:dev
+    environment: { HOME: /home/pilot }
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /home/pilot/wallet && exec wallet --addr 0:0002.CA11.E300 --socket /home/pilot/wallet/wallet.sock --db /home/pilot/wallet/data.db --identity /home/pilot/wallet/identity.json"]
+    volumes:
+      - ./scripts:/scripts:ro
+    networks: [pilot-net]
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /home/pilot/wallet/wallet.sock"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 4s

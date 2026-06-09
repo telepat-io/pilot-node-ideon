@@ -1,0 +1,27 @@
+{
+  "name": "@telepat/ideon-article-app",
+  "version": "0.1.0",
+  "description": "Pilot app-store app: sell request-article -> pay(USDC authorization) -> deliver, wrapping Ideon ideon_write.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "ideon-article-app": "bin/main.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "pilotprotocol": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
