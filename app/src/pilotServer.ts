@@ -112,12 +112,12 @@ async function handleRequest(worker: Worker, msg: WorkerRequest, opts: Capabilit
   try {
     const reqBytes = Buffer.from(msg.payloadB64, 'base64');
     const req = JSON.parse(reqBytes.toString('utf-8')) as GenerateRequest;
-    log('info', 'capability request', { id: msg.id, op: req.op, idea: truncate(req.idea) });
+    log('info', 'capability request', { id: msg.id, op: req.op, idea: truncate(req.idea ?? '') });
     response = await opts.onRequest(req);
   } catch (err) {
-    // Surface a well-formed generate error rather than dropping the conn.
+    // Surface a well-formed error reply rather than dropping the conn.
     log('error', 'capability request failed', { id: msg.id, error: (err as Error).message });
-    response = { op: 'generate', ok: false, error: `bad request: ${(err as Error).message}` };
+    response = { op: 'error', ok: false, error: `bad request: ${(err as Error).message}` };
   }
 
   const replyBytes = Buffer.from(JSON.stringify(response), 'utf-8');

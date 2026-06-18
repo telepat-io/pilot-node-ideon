@@ -65,7 +65,9 @@ services:
       # readEnvSettings -> model: env.IDEON_MODEL). Default = package default.
       IDEON_MODEL: ${IDEON_MODEL:-deepseek/deepseek-v4-pro}
       # Provider key for real generation (used only when IDEON_DRY_RUN=false).
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # NB: @telepat/ideon reads TELEPAT_OPENROUTER_KEY (NOT OPENROUTER_API_KEY).
+      TELEPAT_OPENROUTER_KEY: ${OPENROUTER_API_KEY:-}
+      TELEPAT_REPLICATE_TOKEN: ${REPLICATE_API_TOKEN:-}
     volumes:
       # ideon_write writes article-1.md + meta.json under $IDEON_HOME/.ideon/output/<stamp-slug>/.
       # Shared with provider-daemon at the SAME path so the provider app can read it back.
@@ -109,7 +111,7 @@ services:
 
   caller-daemon:
     image: pilot-protocol/pilot:dev
-    command: ["pilot-daemon", "-registry", "rendezvous:9000", "-beacon", "rendezvous:9001", "-socket", "/home/pilot/run/pilot.sock", "-identity", "/home/pilot/identity.json", "-public", "-trust-auto-approve", "-hostname", "caller", "-log-level", "debug"]
+    command: ["pilot-daemon", "-registry", "rendezvous:9000", "-beacon", "rendezvous:9001", "-socket", "/home/pilot/run/pilot.sock", "-identity", "/home/pilot/identity.json", "-public", "-trust-auto-approve", "-hostname", "caller", "-idle-timeout", "600s", "-keepalive", "20s", "-log-level", "debug"]
     environment:
       <<: *pilot-env
       HOSTNAME_PILOT: caller

@@ -1,0 +1,5 @@
+# Override: enable egress so ideon-mcp can reach openrouter.ai for REAL generation.
+# Use with: docker compose -f compose.free.yaml -f compose.free.egress.yaml up -d
+networks:
+  pilot-net:
+    internal: false

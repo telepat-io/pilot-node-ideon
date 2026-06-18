@@ -72,9 +72,12 @@ export interface IpcEnvelope {
 // our app's peer-facing protocol (carried inside a dataexchange JSON frame)
 // ───────────────────────────────────────────────────────────────────────────
 
-/** The FREE protocol is a SINGLE op: "generate" returns the article directly,
- *  with no payment step in between. */
-export type RequestOp = 'generate';
+/** The FREE protocol is ASYNC (real generation takes ~60-90s, longer than the
+ *  Pilot overlay holds an idle dataexchange connection ~60-70s). So a caller
+ *  "generate" returns a jobId immediately; the caller then "poll"s that jobId
+ *  until the article is ready. Each round-trip is sub-second, surviving the
+ *  overlay's connection lifetime. No payment step anywhere. */
+export type RequestOp = 'generate' | 'poll';
 
 /** Optional Ideon shaping knobs forwarded to ideon_write. `length` is either a
  *  named bucket (small|medium|large) or a positive integer word count — both
@@ -86,17 +89,29 @@ export interface IdeonOptions {
 }
 
 /** Request frame our capability server accepts (decoded from a DxType.JSON
- *  frame on port 1001). */
+ *  frame on port 1001). `idea` is required for op:"generate"; `jobId` is
+ *  required for op:"poll". */
 export interface GenerateRequest extends IdeonOptions {
   op: RequestOp;
-  idea: string;
+  idea?: string;
+  jobId?: string;
 }
 
-/** Reply to op:"generate". On success `article` holds the markdown body. */
+/** Per-job status the wrapper tracks in memory. */
+export type JobStatus = 'pending' | 'done' | 'error';
+
+/** Reply frame. op:"accepted" answers a generate (carries the jobId to poll);
+ *  op:"result" answers a poll (status pending|done|error). On a done result
+ *  `article` holds the markdown body. op:"error" is a malformed-request reply. */
 export interface GenerateResponse {
-  op: 'generate';
-  ok: boolean;
-  /** Markdown article body (present when ok). */
+  op: 'accepted' | 'result' | 'error';
+  /** generate -> the job handle to poll; poll -> echoes the polled job. */
+  jobId?: string;
+  /** poll only: pending while generating, done on success, error on failure. */
+  status?: JobStatus;
+  /** true once a result is ready and succeeded. */
+  ok?: boolean;
+  /** Markdown article body (present when status==done && ok). */
   article?: string;
   title?: string;
   slug?: string;
@@ -211,9 +226,3 @@ export interface IdeonWriteResult {
   markdown: string;
 }
 export declare const ideonWrite: IdeonClientModule['ideonWrite'];
-
-/** deliver.ts — package a generated article into the response frame. */
-export interface DeliverModule {
-  frameArticle(result: IdeonWriteResult): GenerateResponse;
-}
-export declare const frameArticle: DeliverModule['frameArticle'];

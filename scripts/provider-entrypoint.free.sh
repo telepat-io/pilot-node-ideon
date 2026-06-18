@@ -64,4 +64,6 @@ exec pilot-daemon \
   -trust-auto-approve \
   -hostname "${HOSTN}" \
   -no-dataexchange \
+  -idle-timeout "${PILOT_IDLE_TIMEOUT:-600s}" \
+  -keepalive "${PILOT_KEEPALIVE:-20s}" \
   -log-level "${LOGLEVEL}"
