@@ -1,138 +1,121 @@
-# pilot-node-ideon — `io.telepat.ideon-article`
+# pilot-node-ideon — `io.telepat.ideon-free`
 
-A containerized **Pilot Protocol app-store node** that sells articles:
-`request-article → pay (USDC authorization) → deliver`, by wrapping Ideon's
-`ideon_write` MCP tool.
+A containerized **Pilot Protocol app-store node** that generates articles on
+demand by wrapping Ideon's `ideon_write` MCP tool. A caller sends one idea over
+the Pilot overlay and gets back a finished markdown article.
 
-## What it is
+## What it does
 
-A **paid Pilot app**: a supervised app-store binary exposing one capability,
-`request-article`. A caller peer asks for a price (`quote`), pays a USDC
-authorization through the Pilot **wallet** app, and on a verified payment
-receives a generated article (`deliver`). The generator is **Ideon**
-(`@telepat/ideon`), driven over its MCP HTTP transport via `ideon_write`.
+A supervised app-store binary exposing a single dataexchange capability on
+overlay port 1001. The wrapper drives **Ideon** (`@telepat/ideon`) over its
+**HTTP MCP** transport (`ideon_write`), run as a sidecar container.
 
-- **App id:** `io.telepat.ideon-article`, `binary.runtime: "node"` (`app/manifest.json`).
-- **Capability:** `request-article` (dataexchange JSON frames on overlay port 1001).
-- **Role:** we are the **payee**; the recipient address comes from the sibling
-  wallet (`wallet.evm.address`, or `wallet.address` for the mock path).
-- **v1 scope:** delivery is gated on a verified authorization / mock receipt.
-  On-chain settlement is out of scope for v1.
+- **App id:** `io.telepat.ideon-free`, `binary.runtime: "node"` (`app/manifest.json`).
+- **Capability:** dataexchange JSON frames on overlay port 1001.
+- **Generator:** Ideon `ideon_write`, reached over HTTP MCP at `ideon-mcp`.
+- **Role:** provider — the capability is served directly; no wallet, no quote/pay/deliver.
 
-## Request protocol (peer ⇄ peer, dataexchange JSON frame on port 1001)
+> The earlier variant of this node (`io.telepat.ideon-article` — a `quote → pay →
+> deliver` flow against a USDC wallet) is preserved on the **`paid`** branch and
+> the `v0.1.0` tag. `main` ships the generate-only node described here. Some
+> paid-era files still sit alongside the free ones on `main` (`compose.yaml`,
+> `scripts/build-all.sh`, `scripts/smoke-{quote,deliver}.sh`, `sign-bundle.sh`,
+> the `.github` workflows) and are pending cleanup — use the `*-free` / `*.free.*`
+> variants below.
+
+## Request protocol (async, peer ⇄ peer, dataexchange JSON frame on port 1001)
+
+Generation takes ~60–90 s — longer than the Pilot overlay holds an idle
+dataexchange connection (~60–70 s). So the protocol is **asynchronous**: a
+`generate` returns a `jobId` immediately, and the caller `poll`s that job until
+the article is ready. Each round-trip is sub-second.
 
 ```
-quote   : { op:"quote",   idea, style?, intent?, length? }
-            -> { op:"quote",   contract }                       # PaymentContract
-deliver : { op:"deliver", idea, contract, receipt }
-            -> { op:"deliver", ok, article?, title?, slug?, error? }
+generate : { op:"generate", idea, style?, intent?, length? }
+            -> { op:"accepted", jobId }
+poll     : { op:"poll", jobId }
+            -> { op:"result", status:"pending" }                          # still generating
+            -> { op:"result", status:"done", ok:true, article, title, slug }
+            -> { op:"result", status:"error", error }
 ```
 
-Each request/reply is a single `DxType.JSON` frame whose payload is
-`JSON.stringify(ArticleRequest | ArticleResponse)`. Exact shapes live in
-`app/src/types.ts`.
+`length` is a named bucket (`small|medium|large`) or an integer word count — both
+forwarded to `ideon_write` verbatim. Each request/reply is a single
+`DxType.JSON` frame; exact shapes live in `app/src/types.ts`. A malformed or
+legacy op (e.g. `quote`) is rejected with `{ op:"error", error:"unknown op …" }`.
+
+## Architecture
+
+```
+caller ──overlay:1001──▶ provider-daemon (pilot, no_skillinject, -no-dataexchange)
+                          └─ app-store supervisor spawns ▶ io.telepat.ideon-free (bin/main.js)
+                                                            └─ HTTP MCP ▶ ideon-mcp (ideon mcp serve-http)
+```
+
+The blocking sdk-node FFI accept loop runs on a worker thread
+(`pilotServerWorker`); the main thread does the async MCP work. `ideon_write`
+returns a filesystem **path**, not the article body, so `ideon-mcp`'s output
+root is a volume shared into `provider-daemon` at the same absolute path,
+letting the wrapper read the generated markdown back.
 
 ## Build (inside Docker)
 
 ```sh
-scripts/build-all.sh
+scripts/build-all.sh    # base images (pilot:dev + ideon:dev) + build/libpilot.so — slow first run
+scripts/build-free.sh   # free wrapper image + signed bundle -> bundles-free/io.telepat.ideon-free
 ```
 
-builds the images and signed bundles (see **Containers** below) plus
-`build/libpilot.so`, all inside `docker/*.Dockerfile`. Upstream refs are pinned to
-exact commit SHAs by default (see `docs/upgrading-pins.md`); override for
-development with `PILOT_REF=<ref> scripts/build-all.sh`.
+`build-all.sh` compiles the base artifacts from pinned upstream sources, all
+inside `docker/*.Dockerfile` (slow the first time; cached afterwards — see
+[docs/upgrading-pins.md](docs/upgrading-pins.md)). `build-free.sh` then builds
+just the light wrapper image (npm ci + typecheck + tsup), stages the complete
+`/app` tree (`bin/main.js` + `bin/pilotServerWorker.js` + `manifest.json` +
+prod `node_modules`), pins `binary.sha256`, and signs the bundle with a
+throwaway ed25519 key — pure local crypto in a network-less container (the smoke
+daemon runs `-trust-auto-approve`, so any publisher is accepted).
 
-## Containers (dev vs prod)
+## Containers
 
-`build-all.sh` produces four images: **pilot** (one image carrying the daemon,
-`pilotctl`, the wallet, and rendezvous binaries), **ideon** (the Ideon MCP server),
-**ideon-article** (this app's bundle), and **libpilot** (a build-time carrier for
-`libpilot.so`). Not all are *run*, and the wallet and this app are **not** their own
-containers — the provider daemon's supervisor spawns them as child processes inside
-`provider-daemon`:
+| Service | Image | Role |
+|---------|-------|------|
+| `provider-daemon` | pilot | our node; supervises `io.telepat.ideon-free` |
+| `ideon-mcp` | ideon | the Ideon generator (HTTP MCP; dry-run by default) |
+| `rendezvous` | pilot | local overlay control plane (demo/smoke only) |
+| `caller-daemon` | pilot | a second node playing the caller (demo/smoke only) |
 
-| Service | Image | Dev (`compose.smoke.yaml`) | Prod (`compose.yaml`) |
-|---------|-------|:--:|:--:|
-| `provider-daemon` — our node; supervises `io.pilot.wallet` + `io.telepat.ideon-article` | pilot | ✓ | ✓ |
-| `ideon-mcp` — the generator (dry-run in dev) | ideon | ✓ | ✓ |
-| `rendezvous` — local overlay control plane | pilot | ✓ | — |
-| `caller-daemon` — a second node playing the buyer | pilot | ✓ | — |
-| `caller-wallet` — mock payer wallet | pilot | ✓ | — |
+`compose.free.yaml` is a self-contained network (`internal: true`, no egress):
+the daemons talk only to the local rendezvous and Ideon runs **dry-run** by
+default, so the full `generate → poll` round-trip runs offline with no LLM key.
 
-**Prod = two containers** (`provider-daemon` + `ideon-mcp`): the node joins Pilot's
-real overlay via `PILOT_REGISTRY`/`PILOT_BEACON`, so we don't run rendezvous
-ourselves. **Dev adds** a local `rendezvous` plus a buyer side (`caller-daemon` +
-`caller-wallet`) on an isolated network, so the full `quote → pay → deliver`
-round-trip runs offline.
-
-## Smoke test (isolated network, mock + dry-run)
-
-`compose.smoke.yaml` is an isolated two-node network (`internal: true`, no egress)
-that exercises the full money path with no external dependencies:
-
-```sh
-cp .env.example .env                               # IDEON_MCP_API_KEY=changeme is enough
-scripts/build-all.sh
-IDEON_MCP_API_KEY=changeme docker compose -f compose.smoke.yaml up -d
-scripts/smoke-quote.sh                             # caller -> provider quote round-trip
-scripts/smoke-deliver.sh                           # pay(mock) -> deliver + bogus/replay refusals
-docker compose -f compose.smoke.yaml down -v
-```
-
-## Run in production
-
-`compose.yaml` is the production topology: the provider daemon (supervising the
-wallet and this app) plus the Ideon MCP sidecar, connected to the Pilot overlay.
+## Smoke test (isolated network, dry-run)
 
 ```sh
 scripts/build-all.sh
-cp .env.example .env                               # then edit .env (see below)
-docker compose up -d
-docker compose logs -f provider-daemon
+scripts/build-free.sh
+IDEON_MCP_API_KEY=changeme docker compose -f compose.free.yaml up -d
+scripts/smoke-free.sh
+docker compose -f compose.free.yaml down -v
 ```
 
-`.env`:
+`smoke-free.sh` dials the provider over the overlay, runs the async
+`generate → poll` until a (placeholder) article comes back, asserts the Ideon
+output dir grew (proving the shared-volume readback worked), and adversarially
+checks that a legacy `quote` is rejected — i.e. the payment leg is gone.
 
-- `IDEON_MCP_API_KEY` — the Ideon MCP bearer key (required).
-- `IDEON_DRY_RUN=false` + `OPENROUTER_API_KEY` (and `REPLICATE_API_TOKEN` if you
-  raise `maxImages`) — for real article generation. With `IDEON_DRY_RUN=true` the
-  node serves placeholder articles and needs no provider keys or egress.
-- `PILOT_REGISTRY` / `PILOT_BEACON` — the Pilot overlay endpoints. Default to the
-  real Pilot network so buyers can reach the node; set them to a self-hosted
-  rendezvous for a private deployment.
+## Real generation
 
-## Build & sign a release (for catalogue submission)
+Ideon defaults to **dry-run** (placeholder articles, no egress, no key). For
+real generation, add the egress override and supply a provider key:
 
 ```sh
-scripts/sign-bundle.sh --key /path/to/publisher.key --out dist \
-    [--bundle-url-base https://github.com/telepat-io/pilot-node-ideon/releases/download/<tag>]
+# @telepat/ideon reads TELEPAT_OPENROUTER_KEY (mapped from OPENROUTER_API_KEY in compose)
+IDEON_DRY_RUN=false OPENROUTER_API_KEY=sk-... \
+  docker compose -f compose.free.yaml -f compose.free.egress.yaml up -d
 ```
 
-builds the bundle **from the wrapper image** (npm ci + typecheck + tsup, all in
-Docker), stages its complete `/app` tree (`bin/main.js` + `bin/pilotServerWorker.js`
-+ `manifest.json` + `package.json` + prod-only `node_modules`), pins
-`binary.sha256` into the **staged** manifest, signs it with the ed25519 publisher
-key (`pilotctl appstore sign`), and produces a reproducible
-`dist/io.telepat.ideon-article-<version>.tar.gz` + `.sha256` +
-`catalogue-entry.json` (the same commit re-signs to the same tarball sha —
-`app/package-lock.json` pins the dependency tree).
-
-**Key custody + verification model.** The publisher private key is never stored
-on GitHub — not in this repo (`/secure/` is gitignored) and not as a CI secret.
-Releases are signed locally by the maintainer and published as GitHub Releases;
-the [`verify-release` workflow](.github/workflows/verify-release.yml) then
-independently re-checks every published release from the public artifacts alone:
-tarball sha256, manifest id/version vs tag, the publisher identity against the
-pinned [`PUBLISHER.pub`](PUBLISHER.pub), the binary sha256 pin, and the embedded
-ed25519 signature (via `pilotctl` built from the pinned upstream ref).
-
-All upstream refs (Pilot monorepo, libpilot siblings, wallet/rendezvous) are
-pinned to exact SHAs/versions — see [docs/upgrading-pins.md](docs/upgrading-pins.md)
-for the inventory and the bump procedure.
-
-Going live is maintainer-gated: a Pilot maintainer commits the catalogue entry
-(`dist/catalogue-entry.json`) to the upstream catalogue.
+`compose.free.egress.yaml` flips `pilot-net` to `internal: false` so `ideon-mcp`
+can reach OpenRouter. Select the model with `IDEON_MODEL` (default
+`deepseek/deepseek-v4-pro`); set `REPLICATE_API_TOKEN` for image generation.
 
 ## Layout
 
@@ -140,17 +123,19 @@ Going live is maintainer-gated: a Pilot maintainer commits the catalogue entry
 .
 ├── README.md            # this file
 ├── LICENSE              # Apache-2.0
-├── PUBLISHER.pub        # pinned publisher pubkey (CI verifies releases against it)
-├── compose.yaml         # production topology (provider + wallet + ideon + app)
-├── compose.smoke.yaml   # isolated mock + dry-run regression test
+├── compose.free.yaml         # self-contained local network (rendezvous + provider + ideon-mcp + caller)
+├── compose.free.egress.yaml  # override: enable egress for real generation
 ├── .env.example         # environment template
-├── .github/workflows/   # ci (build gate) + verify-release (release integrity)
-├── docs/                # upgrading-pins.md (pin inventory + bump procedure)
 ├── docker/              # Dockerfiles (compiled inside Docker; upstream pinned)
-├── app/                 # the Node app (@telepat/ideon-article-app)
-│   ├── manifest.json    # app-store manifest (sha256/sig pinned by sign-bundle.sh)
-│   └── src/             # wrapper, capability server, wallet IPC, Ideon client, ...
-└── scripts/             # build-all, sign-bundle, smoke-*, ...
+│   ├── pilot.Dockerfile     # daemon(no_skillinject)+pilotctl+wallet+rendezvous
+│   ├── ideon.Dockerfile     # the Ideon MCP server image
+│   ├── libpilot.Dockerfile  # the sdk-node FFI native lib (CGO c-shared)
+│   ├── wrapper.Dockerfile   # this app's bundle (tsup + prod node_modules)
+│   └── upstream-pins.txt    # pinned SHAs for the upstream sibling repos
+├── app/                 # the Node app
+│   ├── manifest.json    # app-store manifest (sha256/sig pinned by build-free.sh)
+│   └── src/             # wrapper, capability server, Ideon MCP client, types, ...
+└── scripts/             # build-all, build-free, provider-entrypoint.free, smoke-free, dx-client
 ```
 
 ## License
