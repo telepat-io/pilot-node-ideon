@@ -28,9 +28,17 @@ RUN npm install -g --no-audit --no-fund @telepat/ideon@0.1.38
 #   IDEON_HOME             — where dry-run writes .ideon/output/<ts-slug>/article-1.md.
 #   IDEON_MCP_API_KEY      — Bearer key; default "changeme" matches .env.example,
 #                            MUST be provided by compose for a real run.
+#   IDEON_MODEL            — the OpenRouter model id ideon_write generates with.
+#                            Ideon resolves the active model in src/config/resolver.ts
+#                            (resolveRunInput): IDEON_MODEL overlays the saved config
+#                            file's `model` (env > job > saved settings), read fresh
+#                            on every generation via readEnvSettings (src/config/env.ts
+#                            -> `model: env.IDEON_MODEL`). Default is the package
+#                            default (deepseek/deepseek-v4-pro); override in compose.
 ENV TELEPAT_DISABLE_KEYTAR=true \
     IDEON_HOME=/data/ideon \
     IDEON_MCP_API_KEY=changeme \
+    IDEON_MODEL=deepseek/deepseek-v4-pro \
     IDEON_MCP_HOST=0.0.0.0 \
     IDEON_MCP_PORT=3001 \
     IDEON_MCP_ENDPOINT=/mcp

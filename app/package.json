@@ -1,11 +1,11 @@
 {
-  "name": "@telepat/ideon-article-app",
+  "name": "@telepat/ideon-free-app",
   "version": "0.1.0",
-  "description": "Pilot app-store app: sell request-article -> pay(USDC authorization) -> deliver, wrapping Ideon ideon_write.",
+  "description": "Pilot app-store app: free article generation (op:generate -> article), wrapping Ideon ideon_write. No payment leg.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
-    "ideon-article-app": "bin/main.js"
+    "ideon-free-app": "bin/main.js"
   },
   "scripts": {
     "build": "tsup",

@@ -8,7 +8,7 @@
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-const APP_ID = 'io.telepat.ideon-article';
+const APP_ID = 'io.telepat.ideon-free';
 
 export function log(level: LogLevel, msg: string, fields?: Record<string, unknown>): void {
   const rec: Record<string, unknown> = {

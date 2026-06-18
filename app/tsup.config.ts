@@ -1,5 +1,5 @@
 /**
- * tsup build config for the io.telepat.ideon-article app.
+ * tsup build config for the io.telepat.ideon-free app.
  *
  * Two entrypoints are emitted as SEPARATE files (no bundling between them) so
  * the runtime worker loader can resolve `./pilotServerWorker.js` next to

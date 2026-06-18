@@ -20,7 +20,7 @@
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { DxType } from './types.js';
-import type { ArticleRequest, ArticleResponse, CapabilityServerOpts, CapabilityServerHandle } from './types.js';
+import type { GenerateRequest, GenerateResponse, CapabilityServerOpts, CapabilityServerHandle } from './types.js';
 import { encodeFrame, decodeFrame } from './dxframe.js';
 import { log } from './log.js';
 
@@ -32,7 +32,7 @@ interface WorkerRequest {
   kind: 'request';
   /** Correlates a request with the reply the main thread sends back. */
   id: number;
-  /** Base64 of the decoded JSON-frame payload (the ArticleRequest bytes). */
+  /** Base64 of the decoded JSON-frame payload (the GenerateRequest bytes). */
   payloadB64: string;
 }
 interface WorkerError {
@@ -108,16 +108,16 @@ export function startCapabilityServer(opts: CapabilityServerOpts): Promise<Capab
  * dataexchange frame, and hand it back to the worker to write on the conn.
  */
 async function handleRequest(worker: Worker, msg: WorkerRequest, opts: CapabilityServerOpts): Promise<void> {
-  let response: ArticleResponse;
+  let response: GenerateResponse;
   try {
     const reqBytes = Buffer.from(msg.payloadB64, 'base64');
-    const req = JSON.parse(reqBytes.toString('utf-8')) as ArticleRequest;
+    const req = JSON.parse(reqBytes.toString('utf-8')) as GenerateRequest;
     log('info', 'capability request', { id: msg.id, op: req.op, idea: truncate(req.idea) });
     response = await opts.onRequest(req);
   } catch (err) {
-    // Surface a well-formed deliver error rather than dropping the conn.
+    // Surface a well-formed generate error rather than dropping the conn.
     log('error', 'capability request failed', { id: msg.id, error: (err as Error).message });
-    response = { op: 'deliver', ok: false, error: `bad request: ${(err as Error).message}` };
+    response = { op: 'generate', ok: false, error: `bad request: ${(err as Error).message}` };
   }
 
   const replyBytes = Buffer.from(JSON.stringify(response), 'utf-8');

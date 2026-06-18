@@ -1,5 +1,5 @@
 {
-  "id": "io.telepat.ideon-article",
+  "id": "io.telepat.ideon-free",
   "app_version": "0.1.0",
   "manifest_version": 1,
   "binary": {
@@ -15,12 +15,7 @@
     {"cap": "net.dial", "target": "*.pilot",
      "if": {"kind": "rate", "params": {"per": "min", "limit": 60}}},
     {"cap": "net.dial", "target": "ideon-mcp",
-     "if": {"kind": "rate", "params": {"per": "min", "limit": 30}}},
-    {"cap": "ipc.call", "target": "io.pilot.wallet.wallet.evm.verify"},
-    {"cap": "ipc.call", "target": "io.pilot.wallet.wallet.evm.address"}
-  ],
-  "depends": [
-    {"app": "io.pilot.wallet", "methods": ["wallet.evm.verify", "wallet.evm.address"]}
+     "if": {"kind": "rate", "params": {"per": "min", "limit": 30}}}
   ],
   "protection": "guarded",
   "store": {

@@ -1,0 +1,131 @@
+# compose.free.yaml — self-contained local network for the io.telepat.ideon-free node.
+#
+#   rendezvous (registry :9000 / beacon :9001 / dashboard :3000)
+#        ▲                    ▲
+#   provider-daemon       caller-daemon
+#     └─ io.telepat.ideon-free (supervised; OUR app — listens dataexchange :1001)
+#        └─ HTTP MCP → ideon-mcp (ideon mcp serve-http, dry-run by default)
+#
+# There is NO wallet and NO caller-wallet: the FREE node dropped the entire
+# payment leg. A caller sends ONE {op:"generate"} frame and gets the article back.
+#
+# `pilot-net` is `internal: true` (no egress): the daemons talk only to the local
+# rendezvous and Ideon runs dry-run by default, so the demo needs no outbound
+# network. For REAL generation set IDEON_DRY_RUN=false, supply OPENROUTER_API_KEY,
+# and remove `internal: true` so ideon-mcp can reach OpenRouter.
+#
+# The pilot image is the no_skillinject build; HOME is the container-local
+# /home/pilot; only ./bundles-free and ./scripts are mounted (read-only). All
+# writable state lives under /home/pilot.
+#
+# Prereq: scripts/build-free.sh (builds the free wrapper image + signs the bundle).
+name: ideon-free
+
+networks:
+  pilot-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  caller-run:   # caller daemon IPC socket, shared with the demo client
+  ideon-data:   # Ideon output root (/data/ideon). SHARED ideon-mcp <-> provider so
+                # the provider app can readFile the markdownPath ideon_write returns
+                # (ideonClient.ts:169-181 — ideon_write returns a PATH, not the body).
+
+x-pilot-env: &pilot-env
+  HOME: /home/pilot
+  PILOT_SOCKET: /home/pilot/run/pilot.sock
+  IDENTITY_PATH: /home/pilot/identity.json
+  RENDEZVOUS_REGISTRY: rendezvous:9000
+  RENDEZVOUS_BEACON: rendezvous:9001
+
+services:
+
+  rendezvous:
+    image: pilot-protocol/pilot:dev
+    command: ["rendezvous", "-registry-addr", ":9000", "-beacon-addr", ":9001", "-http", ":3000", "-store", "/home/pilot/reg.json", "-log-level", "info"]
+    environment: { HOME: /home/pilot }
+    networks: [pilot-net]
+    healthcheck:
+      # node is the only HTTP client in the slim image (no wget/curl).
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/healthz',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 3s
+      timeout: 4s
+      retries: 30
+      start_period: 4s
+
+  ideon-mcp:
+    image: pilot-protocol/ideon:dev
+    environment:
+      IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
+      TELEPAT_DISABLE_KEYTAR: "true"
+      IDEON_HOME: /data/ideon
+      # Model is swappable via env: IDEON_MODEL overlays Ideon's saved-config
+      # `model` (resolver.ts resolveRunInput; read fresh per generation via
+      # readEnvSettings -> model: env.IDEON_MODEL). Default = package default.
+      IDEON_MODEL: ${IDEON_MODEL:-deepseek/deepseek-v4-pro}
+      # Provider key for real generation (used only when IDEON_DRY_RUN=false).
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # ideon_write writes article-1.md + meta.json under $IDEON_HOME/.ideon/output/<stamp-slug>/.
+      # Shared with provider-daemon at the SAME path so the provider app can read it back.
+      - ideon-data:/data/ideon
+    networks: [pilot-net]
+
+  provider-daemon:
+    image: pilot-protocol/pilot:dev
+    entrypoint: ["/scripts/provider-entrypoint.free.sh"]
+    environment:
+      <<: *pilot-env
+      HOSTNAME_PILOT: provider
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      IDEON_MCP_ENDPOINT: http://ideon-mcp:3001/mcp
+      IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
+      # true (default) = dry-run placeholder article, no LLM key needed. Set false
+      # for real generation (also set OPENROUTER_API_KEY on ideon-mcp). The
+      # supervised app inherits this env verbatim (the supervisor never resets it).
+      IDEON_DRY_RUN: ${IDEON_DRY_RUN:-true}
+      APP_BUNDLE: /bundles/io.telepat.ideon-free
+      # libpilot.so for the sdk-node FFI (built from source). Inherited by the
+      # supervised app, which the FFI loader honors first (org/sdk-node/src/ffi.ts:58-62).
+      PILOT_LIB_PATH: /opt/libpilot.so
+    volumes:
+      - ./bundles-free:/bundles:ro
+      - ./scripts:/scripts:ro
+      - ./build/libpilot.so:/opt/libpilot.so:ro
+      # Same Ideon output root as ideon-mcp, at the SAME absolute path, so the
+      # supervised app's readFile(markdownPath) resolves (ideonClient.ts:169-181).
+      - ideon-data:/data/ideon
+    networks: [pilot-net]
+    depends_on:
+      rendezvous: { condition: service_healthy }
+      ideon-mcp: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /home/pilot/.pilot/apps/io.telepat.ideon-free/app.sock"]
+      interval: 3s
+      timeout: 3s
+      retries: 50
+      start_period: 12s
+
+  caller-daemon:
+    image: pilot-protocol/pilot:dev
+    command: ["pilot-daemon", "-registry", "rendezvous:9000", "-beacon", "rendezvous:9001", "-socket", "/home/pilot/run/pilot.sock", "-identity", "/home/pilot/identity.json", "-public", "-trust-auto-approve", "-hostname", "caller", "-log-level", "debug"]
+    environment:
+      <<: *pilot-env
+      HOSTNAME_PILOT: caller
+    # run as root so the daemon can create its IPC socket inside the (root-owned)
+    # named volume; the demo client (also root) then reads it. Ephemeral demo
+    # scaffolding only — the provider keeps the non-root container-local layout.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /home/pilot/run && exec \"$0\" \"$@\""]
+    volumes:
+      - caller-run:/home/pilot/run   # named so the demo client can reach the daemon socket
+    networks: [pilot-net]
+    depends_on:
+      rendezvous: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /home/pilot/run/pilot.sock"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 6s
