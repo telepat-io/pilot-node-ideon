@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # scripts/sign-bundle.sh — produce a submission-ready, sha256-pinned app bundle
-# for io.telepat.ideon-article. (See the Pilot catalogue go-live process.)
+# for io.telepat.ideon-free. (See the Pilot catalogue go-live process.)
 #
 # WHAT THIS DOES (all builds inside Docker; NO daemon is run):
 #   1. Build the wrapper image (docker/wrapper.Dockerfile: npm ci + typecheck +
-#      tsup, prod-pruned node_modules) and stage its COMPLETE /app tree:
-#         bin/main.js  bin/pilotServerWorker.js  manifest.json  package.json
-#         node_modules/ (runtime deps only)
-#      The worker file and package.json ("type":"module") are REQUIRED at
-#      runtime — staging anything less ships a bundle that crashes on spawn.
-#   2. Compute sha256(bin/main.js) and pin it into the STAGED manifest.json —
+#      tsup) and stage the SINGLE self-contained bundle:
+#         manifest.json  bin/main.mjs
+#      bin/main.mjs is ESM-self-interpreting (no package.json/node_modules), so the
+#      official catalogue install (manifest + binary only) yields a working app.
+#   2. Compute sha256(bin/main.mjs) and pin it into the STAGED manifest.json —
 #      the value the supervisor re-checks on EVERY spawn (supervisor.go:717).
 #      The repo's app/manifest.json keeps its placeholder; the working tree
 #      stays clean and re-runs are idempotent.
@@ -44,7 +43,7 @@
 #
 # ENV:
 #   PILOT_IMAGE    pilot image carrying pilotctl (default: pilot-protocol/pilot:dev)
-#   WRAPPER_IMAGE  wrapper image tag to build/stage (default: pilot-protocol/ideon-article:release)
+#   WRAPPER_IMAGE  wrapper image tag to build/stage (default: pilot-protocol/ideon-free:release)
 #   SKIP_IMAGE_BUILD=1  reuse an existing WRAPPER_IMAGE (skip docker build)
 #
 # DEFERRED MANUAL MAINTAINER STEPS (NOT done here — see end of output):
@@ -61,7 +60,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${REPO_ROOT}/app"
 
 PILOT_IMAGE="${PILOT_IMAGE:-pilot-protocol/pilot:dev}"
-WRAPPER_IMAGE="${WRAPPER_IMAGE:-pilot-protocol/ideon-article:release}"
+WRAPPER_IMAGE="${WRAPPER_IMAGE:-pilot-protocol/ideon-free:release}"
 KEY_FILE="${KEY_FILE:-${REPO_ROOT}/secure/publisher.key}"
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/dist}"
 BUNDLE_URL_BASE="${BUNDLE_URL_BASE:-}"
@@ -77,7 +76,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-APP_ID="io.telepat.ideon-article"
+APP_ID="io.telepat.ideon-free"
 
 log() { printf '\033[1;34m[sign-bundle]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[sign-bundle] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -124,21 +123,24 @@ rm -rf "${STAGE}"
 mkdir -p "${STAGE}"
 trap 'rm -rf "${STAGE}"' EXIT
 
-log "staging /app from ${WRAPPER_IMAGE} → ${STAGE}"
+log "staging manifest.json + bin/main.mjs from ${WRAPPER_IMAGE} → ${STAGE}"
 CID="$(docker create "${WRAPPER_IMAGE}")"
-docker cp "${CID}:/app/." "${STAGE}/"
+mkdir -p "${STAGE}/bin"
+docker cp "${CID}:/app/manifest.json" "${STAGE}/manifest.json"
+docker cp "${CID}:/app/bin/main.mjs" "${STAGE}/bin/main.mjs"
 docker rm -f "${CID}" >/dev/null 2>&1 || true
 
-BIN="${STAGE}/bin/main.js"
+BIN="${STAGE}/bin/main.mjs"
 MANIFEST="${STAGE}/manifest.json"
-for f in "${BIN}" "${STAGE}/bin/pilotServerWorker.js" "${MANIFEST}" "${STAGE}/package.json"; do
+for f in "${BIN}" "${MANIFEST}"; do
   [[ -e "$f" ]] || die "staged bundle incomplete — missing $(basename "$f")"
 done
-[[ -d "${STAGE}/node_modules/pilotprotocol" ]] || die "staged node_modules missing pilotprotocol (runtime FFI dep)"
 
 # The supervisor execs binary.path directly (supervisor.go:763) — node is NOT
-# prepended. tsup's banner already emits the shebang; keep the guard + exec bit.
-head -c 2 "${BIN}" | grep -q '#!' || die "bin/main.js lacks a shebang (tsup banner missing?)"
+# prepended. tsup's banner emits the shebang; keep the guard + exec bit. The
+# bundle is a SINGLE self-contained .mjs (no node_modules/package.json), so the
+# official catalogue install (manifest + binary only) yields a working app.
+head -c 2 "${BIN}" | grep -q '#!' || die "bin/main.mjs lacks a shebang (tsup banner missing?)"
 chmod +x "${BIN}"
 
 # ── 2. gen-key (once) — fresh ed25519 publisher key, OUTSIDE the bundle ──────
@@ -152,11 +154,11 @@ else
   pilotctl appstore gen-key "${KEY_FILE}"
 fi
 
-# ── 3. Pin sha256(bin/main.js) into the STAGED manifest.binary.sha256 ────────
+# ── 3. Pin sha256(bin/main.mjs) into the STAGED manifest.binary.sha256 ────────
 # 64 lowercase hex, exactly what validate.go:80 and verifyBinary (supervisor.go:730)
 # expect. Use python3 for an in-place JSON edit that preserves the schema shape.
 BIN_SHA="$(sha256sum "${BIN}" | awk '{print $1}')"
-log "bin/main.js sha256 = ${BIN_SHA}"
+log "bin/main.mjs sha256 = ${BIN_SHA}"
 python3 - "${MANIFEST}" "${BIN_SHA}" <<'PY'
 import json, sys
 mf_path, sha = sys.argv[1], sys.argv[2]
@@ -212,7 +214,7 @@ log "DONE."
 echo
 echo "  bundle tarball : ${TARBALL}"
 echo "  tarball sha256 : ${TAR_SHA}"
-echo "  manifest sha256: ${BIN_SHA}  (bin/main.js)"
+echo "  manifest sha256: ${BIN_SHA}  (bin/main.mjs)"
 echo "  catalogue entry: ${OUT_DIR}/catalogue-entry.json"
 echo "  publisher key  : ${KEY_FILE}  (mode 0600 — keep secret, NOT in the bundle)"
 echo "  publisher pub  : ${PUBLISHER}"

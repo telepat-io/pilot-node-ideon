@@ -1,20 +1,16 @@
 {
   "id": "io.telepat.ideon-free",
-  "app_version": "0.1.0",
+  "app_version": "0.2.0",
   "manifest_version": 1,
   "binary": {
     "runtime": "node",
-    "path": "bin/main.js",
+    "path": "bin/main.mjs",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "exposes": [],
+  "exposes": ["ideon-free.generate", "ideon-free.poll", "ideon-free.help"],
   "grants": [
-    {"cap": "fs.write", "target": "$APP/state.db"},
-    {"cap": "fs.read",  "target": "$APP/state.db"},
     {"cap": "audit.log", "target": "*"},
-    {"cap": "net.dial", "target": "*.pilot",
-     "if": {"kind": "rate", "params": {"per": "min", "limit": 60}}},
-    {"cap": "net.dial", "target": "ideon-mcp",
+    {"cap": "net.dial", "target": "ideon-mcp.telepat.io",
      "if": {"kind": "rate", "params": {"per": "min", "limit": 30}}}
   ],
   "protection": "guarded",

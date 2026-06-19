@@ -1,19 +1,16 @@
 {
   "name": "@telepat/ideon-free-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pilot app-store app: free article generation (op:generate -> article), wrapping Ideon ideon_write. No payment leg.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
-    "ideon-free-app": "bin/main.js"
+    "ideon-free-app": "bin/main.mjs"
   },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/main.ts"
-  },
-  "dependencies": {
-    "pilotprotocol": "1.10.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
