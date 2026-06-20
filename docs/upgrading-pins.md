@@ -83,13 +83,13 @@ versioned inconsistently); each is guarded so rot fails loudly:
 
 ```sh
 scripts/build-all.sh
-IDEON_MCP_API_KEY=changeme docker compose -f compose.smoke.yaml up -d
-scripts/smoke-quote.sh        # caller -> provider quote round-trip
-scripts/smoke-deliver.sh      # pay(mock) -> deliver; bogus + replay refused
-docker compose -f compose.smoke.yaml down
+scripts/build-free.sh
+IDEON_MCP_API_KEY=changeme docker compose -f compose.free.yaml up -d
+scripts/smoke-free.sh         # generate -> poll over app-store IPC
+docker compose -f compose.free.yaml down -v
 ```
 
-Commit the pin changes only after both smoke scripts pass.
+Commit the pin changes only after the smoke passes.
 
 ## 5. Re-release
 

@@ -10,14 +10,16 @@
  *
  * Result: structuredContent {slug,title,outputCount,markdownPath,markdownPaths,
  * generationDir,analyticsPath}. cite: telepat/ideon/src/integrations/mcp/server.ts:199-207.
- * We then read the markdown body back from markdownPath (shared volume).
+ * ideon_write returns only a PATH (never the body inline — content[0] is a one-line
+ * summary), so we read the body back over HTTPS from the backend's authenticated
+ * file route (<origin>/files/<rel>), NOT a shared filesystem. The app therefore
+ * needs no co-located volume and runs portably on any daemon that can dial the host.
  *
  * NOTE on maxImages: zod is `z.coerce.number().int().min(1)` in 0.1.38
  * (cite: tools.ts:22) so maxImages:0 is REJECTED. We OMIT maxImages and rely on
  * dryRun to suppress real image generation.
  */
 
-import { readFile } from 'node:fs/promises';
 import type { IdeonWriteOpts, IdeonWriteResult } from './types.js';
 import { log } from './log.js';
 
@@ -115,7 +117,7 @@ export async function ideonWrite(opts: IdeonWriteOpts): Promise<IdeonWriteResult
     params: {
       protocolVersion: '2025-06-18',
       capabilities: {},
-      clientInfo: { name: 'ideon-article-app', version: '0.1.0' },
+      clientInfo: { name: 'ideon-free-app', version: '0.3.0' },
     },
   });
   const sessionId = init.sessionId;
@@ -164,21 +166,26 @@ export async function ideonWrite(opts: IdeonWriteOpts): Promise<IdeonWriteResult
     throw new Error('ideon mcp: ideon_write missing structuredContent.{markdownPath,slug,title}');
   }
 
-  // Read the markdown body back from the returned path. ideon_write only
-  // returns PATHS (never the body inline — cite: server.ts:199-207), so the
-  // Ideon output dir ($IDEON_HOME/.ideon/output) MUST be a volume SHARED into
-  // this container at the SAME absolute path. (Deployment requirement: mount the
-  // ideon-data volume into the provider-daemon too; compose currently mounts it
-  // only into ideon-mcp.)
-  let markdown: string;
-  try {
-    markdown = await readFile(sc.markdownPath, 'utf-8');
-  } catch (err) {
+  // Read the markdown body back over HTTPS. ideon_write returns only a PATH
+  // (cite: server.ts:199-207; result.content[0] is a one-line summary, not the
+  // body), so the backend serves its Ideon output dir at <origin>/files/<rel>
+  // (Bearer-gated). We map the absolute markdownPath to a URL by keying off the
+  // ".ideon/" segment — independent of the backend's IDEON_HOME — so the app
+  // needs no shared volume and runs portably on any daemon.
+  const filesBase = opts.endpoint.replace(/\/mcp\/?$/, '/files');
+  const marker = sc.markdownPath.indexOf('.ideon/');
+  if (marker < 0) {
+    throw new Error(`ideon mcp: unexpected markdownPath ${sc.markdownPath} (no .ideon/ segment)`);
+  }
+  const fileUrl = `${filesBase}/${sc.markdownPath.slice(marker)}`;
+  const fileRes = await fetch(fileUrl, { headers: { authorization: `Bearer ${opts.apiKey}` } });
+  if (!fileRes.ok) {
+    const body = (await fileRes.text()).slice(0, 300);
     throw new Error(
-      `ideon mcp: cannot read markdownPath ${sc.markdownPath} ` +
-        `(is the Ideon output dir mounted into this container at the same path?): ${(err as Error).message}`,
+      `ideon mcp: cannot fetch article body ${fileUrl}: HTTP ${fileRes.status} ${fileRes.statusText} ${body}`,
     );
   }
+  const markdown = await fileRes.text();
 
   log('info', 'ideon_write complete', {
     slug: sc.slug,

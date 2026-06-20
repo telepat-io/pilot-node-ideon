@@ -5,8 +5,8 @@
 # pilot-protocol/pilot:dev (pilotctl) and pilot-protocol/ideon:dev images and the
 # already-extracted build/libpilot.so — only the (light) wrapper image is built.
 #
-#   bundles-free/io.telepat.ideon-free/  manifest.json + bin/{main,pilotServerWorker}.js
-#                                        + node_modules (from the wrapper image)
+#   bundles-free/io.telepat.ideon-free/  manifest.json + bin/main.mjs
+#                                        (single self-contained ESM; no node_modules)
 #
 # The manifest gets binary.sha256 pinned to its real binary, then signed with a
 # THROWAWAY ed25519 publisher key (kept under bundles-free/, never the real
@@ -44,12 +44,11 @@ log "staging /app from ${WRAPPER_IMAGE} -> ${BUNDLES}/${APP_ID}"
 ACID="$(docker create "${WRAPPER_IMAGE}")"; trap 'docker rm -f "${ACID}" >/dev/null 2>&1 || true' EXIT
 docker cp "${ACID}:/app/." "${BUNDLES}/${APP_ID}/"
 docker rm -f "${ACID}" >/dev/null 2>&1 || true; trap - EXIT
-chmod +x "${BUNDLES}/${APP_ID}/bin/main.js"
+chmod +x "${BUNDLES}/${APP_ID}/bin/main.mjs"
 
-for f in bin/main.js bin/pilotServerWorker.js manifest.json package.json; do
+for f in bin/main.mjs manifest.json; do
   [ -e "${BUNDLES}/${APP_ID}/${f}" ] || { echo "staged bundle incomplete — missing ${f}" >&2; exit 1; }
 done
-[ -d "${BUNDLES}/${APP_ID}/node_modules/pilotprotocol" ] || { echo "staged node_modules missing pilotprotocol" >&2; exit 1; }
 
 # ── 3. throwaway publisher key (fresh each run) ───────────────────────────────
 log "generating throwaway publisher key -> ${KEY}"

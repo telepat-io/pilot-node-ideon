@@ -3,16 +3,20 @@
 #   rendezvous (registry :9000 / beacon :9001 / dashboard :3000)
 #        ▲                    ▲
 #   provider-daemon       caller-daemon
-#     └─ io.telepat.ideon-free (supervised; OUR app — listens dataexchange :1001)
-#        └─ HTTP MCP → ideon-mcp (ideon mcp serve-http, dry-run by default)
+#     └─ io.telepat.ideon-free (supervised; OUR app — app-store IPC on --socket:
+#        ideon-free.{generate,poll,help})
+#          └─ HTTP → gateway (Caddy) ──/mcp──▶ ideon-mcp (ideon mcp serve-http, dry-run)
+#                                    └─/files─▶ ideon-data (article body read-back)
 #
-# There is NO wallet and NO caller-wallet: the FREE node dropped the entire
-# payment leg. A caller sends ONE {op:"generate"} frame and gets the article back.
+# Portability: the app talks ONLY to the gateway (/mcp to generate, /files to read
+# the article body back) — it does NOT share the Ideon output volume, so this
+# mirrors a remote catalogue install exactly. There is NO wallet: the FREE node
+# dropped the payment leg; a caller invokes ideon-free.generate then polls.
 #
-# `pilot-net` is `internal: true` (no egress): the daemons talk only to the local
-# rendezvous and Ideon runs dry-run by default, so the demo needs no outbound
-# network. For REAL generation set IDEON_DRY_RUN=false, supply OPENROUTER_API_KEY,
-# and remove `internal: true` so ideon-mcp can reach OpenRouter.
+# `pilot-net` is `internal: true` (no egress): everything is local and Ideon runs
+# dry-run by default, so the demo needs no outbound network. For REAL generation
+# set IDEON_DRY_RUN=false, supply OPENROUTER_API_KEY, and remove `internal: true`
+# so ideon-mcp can reach OpenRouter.
 #
 # The pilot image is the no_skillinject build; HOME is the container-local
 # /home/pilot; only ./bundles-free and ./scripts are mounted (read-only). All
@@ -27,10 +31,9 @@ networks:
     internal: true
 
 volumes:
-  caller-run:   # caller daemon IPC socket, shared with the demo client
-  ideon-data:   # Ideon output root (/data/ideon). SHARED ideon-mcp <-> provider so
-                # the provider app can readFile the markdownPath ideon_write returns
-                # (ideonClient.ts:169-181 — ideon_write returns a PATH, not the body).
+  ideon-data:   # Ideon output root (/data/ideon). Written by ideon-mcp, served
+                # read-only by the gateway at /srv/ideon so the app fetches the
+                # article body over HTTP (/files). The daemon does NOT mount it.
 
 x-pilot-env: &pilot-env
   HOME: /home/pilot
@@ -70,9 +73,30 @@ services:
       TELEPAT_REPLICATE_TOKEN: ${REPLICATE_API_TOKEN:-}
     volumes:
       # ideon_write writes article-1.md + meta.json under $IDEON_HOME/.ideon/output/<stamp-slug>/.
-      # Shared with provider-daemon at the SAME path so the provider app can read it back.
+      # The gateway serves this volume read-only at /srv/ideon (the app reads it back over HTTP).
       - ideon-data:/data/ideon
     networks: [pilot-net]
+
+  # gateway — the same Caddy front door as the public edge, HTTP-only on the
+  # internal net: /mcp → ideon-mcp, /files → the article volume (Bearer-gated).
+  # The supervised app dials ONLY this gateway, so the smoke exercises the exact
+  # portable path a remote install uses (no shared volume into the daemon).
+  gateway:
+    image: caddy:2-alpine
+    environment:
+      IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
+    volumes:
+      - ./docker/gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ideon-data:/srv/ideon:ro
+    networks: [pilot-net]
+    depends_on:
+      ideon-mcp: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 3s
+      timeout: 4s
+      retries: 30
+      start_period: 3s
 
   provider-daemon:
     image: pilot-protocol/pilot:dev
@@ -81,7 +105,9 @@ services:
       <<: *pilot-env
       HOSTNAME_PILOT: provider
       LOG_LEVEL: ${LOG_LEVEL:-debug}
-      IDEON_MCP_ENDPOINT: http://ideon-mcp:3001/mcp
+      # The app dials the gateway only (/mcp + /files) — never ideon-mcp directly,
+      # never a shared volume. Mirrors a remote install.
+      IDEON_MCP_ENDPOINT: http://gateway/mcp
       IDEON_MCP_API_KEY: ${IDEON_MCP_API_KEY:-changeme}
       # true (default) = dry-run placeholder article, no LLM key needed. Set false
       # for real generation (also set OPENROUTER_API_KEY on ideon-mcp). The
@@ -95,39 +121,15 @@ services:
       - ./bundles-free:/bundles:ro
       - ./scripts:/scripts:ro
       - ./build/libpilot.so:/opt/libpilot.so:ro
-      # Same Ideon output root as ideon-mcp, at the SAME absolute path, so the
-      # supervised app's readFile(markdownPath) resolves (ideonClient.ts:169-181).
-      - ideon-data:/data/ideon
+      # No ideon-data mount: the app reads the article back over HTTP via the
+      # gateway (/files), so the daemon needs no shared filesystem with Ideon.
     networks: [pilot-net]
     depends_on:
       rendezvous: { condition: service_healthy }
-      ideon-mcp: { condition: service_started }
+      gateway: { condition: service_healthy }
     healthcheck:
       test: ["CMD-SHELL", "test -S /home/pilot/.pilot/apps/io.telepat.ideon-free/app.sock"]
       interval: 3s
       timeout: 3s
       retries: 50
       start_period: 12s
-
-  caller-daemon:
-    image: pilot-protocol/pilot:dev
-    command: ["pilot-daemon", "-registry", "rendezvous:9000", "-beacon", "rendezvous:9001", "-socket", "/home/pilot/run/pilot.sock", "-identity", "/home/pilot/identity.json", "-public", "-trust-auto-approve", "-hostname", "caller", "-idle-timeout", "600s", "-keepalive", "20s", "-log-level", "debug"]
-    environment:
-      <<: *pilot-env
-      HOSTNAME_PILOT: caller
-    # run as root so the daemon can create its IPC socket inside the (root-owned)
-    # named volume; the demo client (also root) then reads it. Ephemeral demo
-    # scaffolding only — the provider keeps the non-root container-local layout.
-    user: "0:0"
-    entrypoint: ["/bin/sh", "-c", "mkdir -p /home/pilot/run && exec \"$0\" \"$@\""]
-    volumes:
-      - caller-run:/home/pilot/run   # named so the demo client can reach the daemon socket
-    networks: [pilot-net]
-    depends_on:
-      rendezvous: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD-SHELL", "test -S /home/pilot/run/pilot.sock"]
-      interval: 3s
-      timeout: 3s
-      retries: 30
-      start_period: 6s

@@ -1,0 +1,28 @@
+# gateway.Caddyfile — local smoke gateway (compose.free.yaml). Mirrors the public
+# edge (sites/ideon-mcp.telepat.io.caddy) but HTTP-only on an internal network:
+# no ACME, no TLS. Proves the PORTABLE topology offline — the supervised app talks
+# only to this gateway (/mcp + /files), never to a shared filesystem.
+{
+	auto_https off
+}
+
+:80 {
+	# /files/* — Bearer-gated read-back of generated articles from the shared
+	# ideon-data volume (mounted read-only at /srv/ideon). The app maps
+	# markdownPath → /files/.ideon/output/…; root is the dir containing .ideon.
+	handle_path /files/* {
+		route {
+			@unauth not header Authorization "Bearer {$IDEON_MCP_API_KEY}"
+			respond @unauth "Unauthorized" 401
+			root * /srv/ideon
+			file_server
+		}
+	}
+
+	# Everything else → the Ideon MCP server (streamable HTTP; don't buffer SSE).
+	handle {
+		reverse_proxy ideon-mcp:3001 {
+			flush_interval -1
+		}
+	}
+}

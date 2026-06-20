@@ -152,7 +152,7 @@ export interface IdeonWriteResult {
   markdownPaths?: string[];
   generationDir: string;
   analyticsPath?: string;
-  /** The article body read back from markdownPath. */
+  /** The article body, fetched over HTTPS from the backend file route (<origin>/files/<rel>). */
   markdown: string;
 }
 export declare const ideonWrite: IdeonClientModule['ideonWrite'];
