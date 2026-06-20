@@ -28,6 +28,12 @@ const APP_ID = 'io.telepat.ideon-free';
 /** Method namespace = the id's final DNS segment. */
 const NS = 'ideon-free';
 
+/** Default Ideon backend key, baked in at BUILD time by tsup `define` (from
+ *  IDEON_MCP_BUILD_KEY) so the app works with zero config when installed from the
+ *  catalogue. Empty in source/dev builds. A runtime IDEON_MCP_API_KEY env var
+ *  always overrides it (see loadConfig). */
+declare const __IDEON_MCP_BUILD_KEY__: string;
+
 /** Parse the six supervisor flags; ignore anything unrecognized. */
 export function parseFlags(argv: string[]): LifecycleFlags {
   const map = new Map<string, string>();
@@ -71,7 +77,8 @@ interface Config {
 function loadConfig(): Config {
   return {
     ideonEndpoint: process.env['IDEON_MCP_ENDPOINT'] ?? 'https://ideon-mcp.telepat.io/mcp',
-    ideonApiKey: process.env['IDEON_MCP_API_KEY'] ?? '',
+    // env override > build-time baked default > empty.
+    ideonApiKey: process.env['IDEON_MCP_API_KEY'] || __IDEON_MCP_BUILD_KEY__ || '',
     dryRun: (process.env['IDEON_DRY_RUN'] ?? 'true').toLowerCase() !== 'false',
   };
 }

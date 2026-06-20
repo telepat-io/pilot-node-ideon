@@ -56,9 +56,11 @@ it, so it runs on any Pilot daemon (portable by design).
 `ideon_write` returns a filesystem **path**, not the article body. Rather than
 require a shared volume, the backend serves its output directory at an
 authenticated `/files` route, and the app fetches the finished markdown back over
-the same HTTPS origin (`①` generates, `②` reads it back). Both routes require the
-`IDEON_MCP_API_KEY` bearer; the key is supplied by the operator at runtime (via
-the daemon environment) and is **never** baked into the published bundle.
+the same HTTPS origin (`①` generates, `②` reads it back). Both routes require a bearer key.
+The published bundle ships with a default key baked in at build time, so the app
+works with **zero configuration** once installed; a runtime `IDEON_MCP_API_KEY`
+(and `IDEON_MCP_ENDPOINT`) environment variable overrides the defaults for
+self-hosted backends.
 
 The wrapper is pure Node (`net.Server` on the supervisor `--socket`, length-prefixed
 JSON-envelope IPC). No native FFI, no worker thread, no SDK — `bin/main.mjs` is a

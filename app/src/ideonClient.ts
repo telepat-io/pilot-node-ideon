@@ -117,7 +117,7 @@ export async function ideonWrite(opts: IdeonWriteOpts): Promise<IdeonWriteResult
     params: {
       protocolVersion: '2025-06-18',
       capabilities: {},
-      clientInfo: { name: 'ideon-free-app', version: '0.3.0' },
+      clientInfo: { name: 'ideon-free-app', version: '0.3.1' },
     },
   });
   const sessionId = init.sessionId;

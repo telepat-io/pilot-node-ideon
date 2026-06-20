@@ -27,4 +27,11 @@ export default defineConfig({
   sourcemap: false,
   // tsc-style type checking is run separately via `npm run typecheck`.
   dts: false,
+  // Bake the default Ideon backend key into the bundle at BUILD time (so it ships
+  // in the public bundle, NOT in the source repo / git history). A runtime
+  // IDEON_MCP_API_KEY env var still takes precedence (see wrapper.ts loadConfig).
+  // Empty when IDEON_MCP_BUILD_KEY is unset — dev/local builds then rely on env.
+  define: {
+    __IDEON_MCP_BUILD_KEY__: JSON.stringify(process.env['IDEON_MCP_BUILD_KEY'] ?? ''),
+  },
 });

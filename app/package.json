@@ -1,6 +1,6 @@
 {
   "name": "@telepat/ideon-free-app",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pilot app-store app: free article generation for agents. ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
   "type": "module",
   "license": "Apache-2.0",

@@ -28,6 +28,11 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
+# Default Ideon backend key, baked into bin/main.mjs at build time (tsup define).
+# Passed only to the `npm run build` process below — no ENV layer, so it is not
+# persisted in image metadata. Empty by default (dev builds rely on the env var).
+ARG IDEON_MCP_BUILD_KEY=""
+
 # Copy manifests first for layer-cached dependency install.
 COPY app/package.json app/package-lock.json app/tsconfig.json app/tsup.config.ts ./
 
@@ -42,7 +47,7 @@ COPY app/manifest.json ./manifest.json
 
 # Typecheck (tsc --noEmit) then bundle src/main.ts -> bin/main.mjs (ESM, node20).
 RUN npm run typecheck \
- && npm run build \
+ && IDEON_MCP_BUILD_KEY="${IDEON_MCP_BUILD_KEY}" npm run build \
  && test -f bin/main.mjs   # fail the build early if the entrypoint is missing
 
 # ── Stage 2: bundle — the minimal {manifest.json, bin/main.mjs} artifact ─────

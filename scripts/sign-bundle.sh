@@ -109,9 +109,20 @@ pilotctl() {
 
 # ── 1. Build the wrapper image and stage its complete /app tree ──────────────
 if [[ "${SKIP_IMAGE_BUILD:-0}" != "1" ]]; then
+  # The default Ideon backend key is baked into bin/main.mjs at build time so the
+  # published app works with zero config. Supply it via the IDEON_MCP_API_KEY env
+  # var; it ends up in the (public) bundle but NOT in the source repo. Empty →
+  # the bundle ships with no baked key (an installer must then set the env var).
+  if [[ -z "${IDEON_MCP_API_KEY:-}" ]]; then
+    log "WARNING: IDEON_MCP_API_KEY is empty — bundle will have NO baked key (installs need the env var)"
+  else
+    log "baking default Ideon key into the bundle (sha256 of key: $(printf '%s' "${IDEON_MCP_API_KEY}" | sha256sum | cut -c1-12)…)"
+  fi
   log "building wrapper image ${WRAPPER_IMAGE} (npm ci + typecheck + tsup, in docker)"
   ( cd "${REPO_ROOT}" && DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}" \
-      docker build -f docker/wrapper.Dockerfile -t "${WRAPPER_IMAGE}" . )
+      docker build -f docker/wrapper.Dockerfile \
+        --build-arg IDEON_MCP_BUILD_KEY="${IDEON_MCP_API_KEY:-}" \
+        -t "${WRAPPER_IMAGE}" . )
 else
   log "SKIP_IMAGE_BUILD=1 — reusing existing image ${WRAPPER_IMAGE}"
 fi
